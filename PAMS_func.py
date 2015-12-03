@@ -9,6 +9,7 @@ import os
 import struct
 import time
 import xlcor47_modified
+import string
 from scipy.optimize import root
 
 
@@ -128,9 +129,9 @@ class MCI(object):
         self.D18 = np.nan
         self.D48_error = np.nan
 
-        self.full_adduct = [0, 0, 0]
-        self.D_adduct = [0, 0, 0]
-        self.18_adduct = [0, 0, 0]
+        self.full_adduct = [0, 0]
+        self.D_adduct = [0, 0]
+        self.adduct_18 = [0, 0]
 
         self.mass18_frag = 3.700725
         self.mass17_frag = 0.053245
@@ -150,9 +151,9 @@ class MCI(object):
     d18_sterr = MCI_AVERAGE('d18_sterr')
     d17_D_sterr = MCI_AVERAGE('d17_full_sterr')
 
-    D18_sterr = MCI_CALULATED_VALUE('D18_sterr')
-    d13C_stdev = MCI_CALCULATED_VALUE('d13C_sterr')
-    dD_stdev = MCI_CALCULATED_VALUE('dD_sterr')
+    D18_sterr = MCI_CALCULATED_VALUE('D18_sterr')
+    d13C_sterr = MCI_CALCULATED_VALUE('d13C_sterr')
+    dD_sterr = MCI_CALCULATED_VALUE('dD_sterr')
 
     # D47_CRF = CI_CORRECTED_VALUE('D47_CRF')
     # hg_slope = CI_UNIVERSAL_VALUE('hg_slope')
@@ -175,6 +176,7 @@ class ACQUISITION_FULL(object):
         self.adduct_18 = [ 0, 0]
         self.frag_18 = 3.700725
         self.type = 'full'
+        self.name
 
     d17_full=MCI_VALUE('d17_full')
     d18=MCI_VALUE('d18')
@@ -192,8 +194,7 @@ class ACQUISITION_D(object):
         self.background=[]
         self.date=''
         self.time=''
-        self.adduct_17 = [ 0, 0]
-        self.adduct_18 = [ 0, 0]
+        self.adduct_17 = [0, 0]
         self.frag_17= 0.053245
         self.type = 'D'
 
@@ -250,9 +251,21 @@ def Isodat_File_Parser(fileName):
     # Rough guess of range where analysis name is, accounting for a large variation in length
     nameBlock = buff[startName+200:startName+400].decode('utf-16')
     #Exact name based on locations of unicode strings directly before and after
-    analysisName = nameBlock[(nameBlock.find('Pressadjust')+19):(nameBlock.find('Identifier')-2)]
+    try:
+        analysisName = nameBlock[(nameBlock.find('Pressadjust')+19):(nameBlock.find('Identifier')-2)]
+        # analysisName = filter(lambda)
+    except UnicodeEncodeError:
+        print('caught a unicode encode error')
+    #quick function to filter out non-ascii chars that are tacked on to end
+    # and, for that matter, anything else following these
+    anf = ''
+    for i in analysisName:
+        if i not in string.printable:
+            break
+        anf += i
+
     # Encode as ascii for consistency
-    analysisName = analysisName.encode('ascii', 'replace')
+    analysisName = anf.encode('ascii', 'ignore')
 
     # 3.4 background values
     #find start of block with background values
@@ -312,24 +325,24 @@ def CIDS_cleaner(analyses):
     return analyses
 
 def FlatList_exporter(analyses,fileName, displayProgress = False):
-    '''Exports a CSV file that is the same format as a traditional flat list'''
+    '''Exports a CSV file with the essential calculated MCI info'''
 
     export=open(fileName + '.csv','wb')
     wrt=csv.writer(export,dialect='excel')
-    wrt.writerow(['User','date','Type','Sample ID','spec #\'s', 'acqs', 'd13C (vpdb)','d13C_stdev','d18O_gas (vsmow)','d18O_mineral (vpdb)',
-    'd18O_stdev','d47','d47_stdev','D47 (v. Oz)','D47_stdev','D47_sterr','d48', 'd48_stdev','D48','D48_stdev', 'hg_slope', 'hg_intercept','D47_CRF', 'D47_ARF', 'D47_ARF std error'])
+    wrt.writerow(['User','date','Type','Sample ID','spec #\'s', 'full acqs', 'dD acqs', 'd13C (vpdb)','d13C_sterr','d2H (vsmow)',
+    'd2H_sterr','d18','d18_sterr','D18 (v. wg)','D18_sterr'])
     counter = 0
     if displayProgress:
         for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, (len(item.acqs)-item.skipFirstAcq), item.d13C, item.d13C_stdev, item.d18O_gas, item.d18O_min,
-            item.d18O_stdev,item.d47,item.d47_stdev,item.D47_raw, item.D47_stdev,item.D47_sterr,item.d48,item.d48_stdev,item.D48_raw,item.D48_stdev, item.hg_slope, item.hg_intercept, item.D47_CRF, np.around(item.D47_ARF, 3), np.around(item.D47_error_all, 3) ])
+            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_stdev, item.dD,
+            item.dD_sterr,item.d18,item.d18_sterr,item.D18,item.D18_sterr ])
             counter += 1
             if ((counter * 100)*100) % (len(analyses)*100) == 0:
                 print(str((counter*100)/len(analyses)) + '% done')
     else:
         for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, (len(item.acqs)-item.skipFirstAcq), item.d13C, item.d13C_stdev, item.d18O_gas, item.d18O_min,
-            item.d18O_stdev,item.d47,item.d47_stdev,item.D47_raw, item.D47_stdev,item.D47_sterr,item.d48,item.d48_stdev,item.D48_raw,item.D48_stdev, item.hg_slope, item.hg_intercept, item.D47_CRF, np.around(item.D47_ARF, 3), np.around(item.D47_error_all,3) ])
+            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_stdev, item.dD,
+            item.dD_sterr,item.d18,item.d18_sterr,item.D18,item.D18_sterr])
     export.close()
     return
 
@@ -342,24 +355,48 @@ def CIDS_exporter(analyses, fileName, displayProgress = False):
     wrt=csv.writer(export,dialect='excel')
     for analysis in analyses:
         wrt.writerow(['__NewSample__'])
-        for acq in analysis.acqs:
-            wrt.writerow(['__NewAcq__'])
+        for acq in analysis.acqs_D:
+            wrt.writerow(['__NewAcq-D__'])
             wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam)[1]*['',]+acq.voltRef[0,:].tolist())
             for i in range(len(acq.voltSam)):
                 wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
             wrt.writerow([])
-            wrt.writerow(['','acq num','date','ref gas d13C','ref gas d18O','name','type','d13C (vpdb)',
-            'd18O_gas (vsmow)', 'd45','d46','d47', 'd48', 'D47_raw', 'D48_raw'])
-            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, acq.d13Cref, acq.d18Oref, analysis.name, analysis.type, acq.d13C,
-            acq.d18O_gas, acq.d45, acq.d46, acq.d47, acq.d48, acq.D47_raw, acq.D48_raw])
+            wrt.writerow(['','acq num','date','name','type', 'adductLine (2nd-ordr)', 'adducLine (1st-ordr)','17fragCorrection','d17_D (wg)'])
+            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1], acq.frag_17, acq.d17_D])
 
         wrt.writerow([])
-        wrt.writerow(['', 'd45','d46','d47','d48','D47_raw','D48_raw','d13C','d18O_gas'])
-        for acq in analysis.acqs:
-            wrt.writerow(['',acq.d45, acq.d46, acq.d47, acq.d48, acq.D47_raw, acq.D48_raw, acq.d13C, acq.d18O_gas])
+
+        for acq in analysis.acqs_full:
+            wrt.writerow(['__NewAcq-Full__'])
+            wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam)[1]*['',]+acq.voltRef[0,:].tolist())
+            for i in range(len(acq.voltSam)):
+                wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
+            wrt.writerow([])
+            wrt.writerow(['','acq num','date','name','type', '17adductLine (2nd-ordr)',
+            '17adductLine (1st-ordr)', '18adductLine (2nd-ordr)', '18adductLine (1st-ordr)','18fragCorrection','d17_full (wg)', 'd18 (wg)'])
+            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1],
+            acq.adduct_18[0], acq.adduct_18[1],acq.frag_18, acq.d17_full, acq.d18])
+
         wrt.writerow([])
-        wrt.writerow(['','User','date','Type','Sample ID','spec #\'s','SkipFirstAcq','d13C (vpdb)','d13C_stdev','d18O_gas (vsmow)','d18O_mineral (vpdb)',
-        'd18O_stdev','d47','d47_stdev','D47 (v. Oz)','D47_stdev','D47_sterr','d48', 'd48_stdev','D48','D48_stdev'])
+        wrt.writerow(['D analyses', 'd17_D','','','full analyses','d17_full','d18'])
+        for i in range(max([len(analysis.acqs_D),len(analysis.acqs_full)])):
+            try:
+                d17_D = analysis.acqs_D[i].d17_D
+            except(IndexError):
+                d17_D = ''
+            try:
+                d17_full = analysis.acqs_full[i].d17_full
+                d18 = analysis.acqs_full[i].d18
+            except(IndexError):
+                d17_full = ''
+                d18 = ''
+            wrt.writerow(['',d17_D, '', '', '' , d17_full, d18])
+
+        wrt.writerow([])
+        wrt.writerow(['','User','date','Type','Sample ID','acq #\'s','D_adduct (2nd-ordr)',
+        'D_adduct (1st-ordr)','full_adduct (2nd-ordr)','full_adduct (1st-ordr)','18_adduct (2nd-ordr)',
+        '18_adduct (1st-ordr)','D_fragCorrection','18_fragCorrection','Fragmenation','d13C (vpdb)',
+        'd13C_sterr','dD (vsmow)','dD_sterr','d47','d47_stdev','D47 (v. Oz)','D47_stdev','D47_sterr','d48', 'd48_stdev','D48','D48_stdev'])
         wrt.writerow(['__SampleSummary__',analysis.user, analysis.date, analysis.type, analysis.name, analysis.num, analysis.skipFirstAcq, analysis.d13C, analysis.d13C_stdev,
         analysis.d18O_gas, analysis.d18O_min, analysis.d18O_stdev, analysis.d47, analysis.d47_stdev, analysis.D47_raw,
         analysis.D47_stdev, analysis.D47_sterr, analysis.d48, analysis.d48_stdev, analysis.D48_raw, analysis.D48_stdev])

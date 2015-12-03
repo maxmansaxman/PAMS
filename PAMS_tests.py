@@ -1,5 +1,8 @@
 import struct
 import time
+import PAMS_func
+import os
+import re
 
 def Isodat_File_Parser(fileName):
     '''Reads in a .did file (Isodat acquisition file), returns the raw voltages for
@@ -73,11 +76,21 @@ def Isodat_File_Parser(fileName):
     return voltRef_raw, voltSam_raw, analysisName, date_str, time_str
 
 
-acqName = raw_input('Drag an acq file for sample ')
-acqName=acqName.strip()
+
+while True:
+    acqName = raw_input('Drag an acq file for sample ')
+    if len(acqName) == 0:
+        break
+    acqName=acqName.strip()
+    acqName = acqName.strip('"')
+    acqName = os.path.abspath(acqName)
+    # acqNum=re.findall('[0-9]{4}',acqName.split('/')[-1])[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
+    acqNum=re.findall('[0-9]{4}',os.path.basename(acqName))[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
+    acqNum=int(acqNum)
+    acqName=acqName.strip()
 
 
-voltRef_raw, voltSam_raw, analysisName, date_str, time_str = Isodat_File_Parser(acqName)
-print('Name = {0}, date is {1}, time is {2}').format(analysisName,date_str,time_str)
-print(voltRef_raw[-1])
-print(voltSam_raw[-1])
+    voltRef_raw, voltSam_raw, analysisName, date_str, time_str = PAMS_func.Isodat_File_Parser(acqName)
+    print('Name = {0}, date is {1}, time is {2}').format(analysisName,date_str,time_str)
+    print(voltRef_raw[-1])
+    print(voltSam_raw[-1])
