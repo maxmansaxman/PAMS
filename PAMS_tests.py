@@ -3,6 +3,7 @@ import time
 import PAMS_func
 import os
 import re
+import numpy as np
 
 def Isodat_File_Parser(fileName):
     '''Reads in a .did file (Isodat acquisition file), returns the raw voltages for
@@ -75,22 +76,42 @@ def Isodat_File_Parser(fileName):
 
     return voltRef_raw, voltSam_raw, analysisName, date_str, time_str
 
-
+analyses = []
 
 while True:
-    acqName = raw_input('Drag an acq file for sample ')
-    if len(acqName) == 0:
+    analyses.append(PAMS_func.MCI())
+    while True:
+        acqName = raw_input('Drag an acq file for sample ')
+        if len(acqName) == 0:
+            break
+
+        # acqNum=re.findall('[0-9]{4}',acqName.split('/')[-1])[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
+        acqNum=re.findall('[0-9]{4}',os.path.basename(acqName))[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
+        acqNum=int(acqNum)
+        acqName=acqName.strip()
+
+
+        voltRef_raw, voltSam_raw, analysisName, date_str, time_str, deuteriumMeasurement, time_c = PAMS_func.Isodat_File_Parser(acqName)
+        print('Name = {0}, date is {1}, time is {2}').format(analysisName,date_str,time_str)
+        print('Deuterium measurement is {0}?').format(str(deuteriumMeasurement))
+        print(voltRef_raw[-1])
+        print(voltSam_raw[-1])
+        if deuteriumMeasurement:
+            analyses[-1].acqs_D.append(PAMS_func.ACQUISITION_D(acqNum))
+            analyses[-1].acqs_D[-1].voltSam_raw = voltSam_raw
+            analyses[-1].acqs_D[-1].voltRef_raw = voltRef_raw
+            analyses[-1].acqs_D[-1].date = date_str
+            analyses[-1].acqs_D[-1].time = time_str
+            analyses[-1].acqs_D[-1].time_c = time_c
+
+        else:
+            analyses[-1].acqs_full.append(PAMS_func.ACQUISITION_FULL(acqNum))
+            analyses[-1].acqs_full[-1].voltSam_raw = voltSam_raw
+            analyses[-1].acqs_full[-1].voltRef_raw = voltRef_raw
+            analyses[-1].acqs_full[-1].date = date_str
+            analyses[-1].acqs_full[-1].time = time_str
+            analyses[-1].acqs_full[-1].time_c = time_c
+
+    newSample = raw_input('do another sample? (y/n)').lower()
+    if len(newSample) == 0:
         break
-    acqName=acqName.strip()
-    acqName = acqName.strip('"')
-    acqName = os.path.abspath(acqName)
-    # acqNum=re.findall('[0-9]{4}',acqName.split('/')[-1])[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
-    acqNum=re.findall('[0-9]{4}',os.path.basename(acqName))[0] #finds the acquision number from the file name, no matter how long the path nor what it contains
-    acqNum=int(acqNum)
-    acqName=acqName.strip()
-
-
-    voltRef_raw, voltSam_raw, analysisName, date_str, time_str = PAMS_func.Isodat_File_Parser(acqName)
-    print('Name = {0}, date is {1}, time is {2}').format(analysisName,date_str,time_str)
-    print(voltRef_raw[-1])
-    print(voltSam_raw[-1])

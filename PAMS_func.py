@@ -39,7 +39,7 @@ class MCI_AVERAGE(object):
         self.name = name
 
     def __get__(self,instance,cls):
-        if len(instance.acqs)>=1:
+        if len(instance.acqs_full)>=1:
             if self.name in ['d17_full','d17_full_sterr','d17_D','d17_D_sterr','d18','d18_sterr']:
                 return np.around(MCI_averages(instance, self.name),3)
 
@@ -60,7 +60,7 @@ class MCI_CALCULATED_VALUE(object):
         self.name = name
 
     def __get__(self,instance,cls):
-        if self.name in ['d13C', 'd13C_sterr', 'dD', 'dD_sterr', 'D18', 'D18_sterr']:
+        if self.name in ['d13C', 'd13C_sterr', 'dD', 'dD_sterr', 'D18_raw', 'D18_sterr']:
             return np.around(MCI_bulk_comp(instance, self.name),3)
 
         else:
@@ -100,7 +100,7 @@ class MCI_VOLTAGE(object):
 
     def __get__(self,instance,cls):
         if self.name in ['voltSam', 'voltRef']:
-            return np.around(CI_background_correction(instance, self.name),3)
+            return np.around(MCI_background_correction(instance, self.name),3)
 
         else:
             raise ValueError('Not a valid value')
@@ -129,8 +129,8 @@ class MCI(object):
         self.D18 = np.nan
         self.D48_error = np.nan
 
-        self.full_adduct = [0, 0]
-        self.D_adduct = [0, 0]
+        self.adduct_full = [0, 0]
+        self.adduct_D = [0, 0]
         self.adduct_18 = [0, 0]
 
         self.mass18_frag = 3.700725
@@ -149,7 +149,7 @@ class MCI(object):
 
     d17_full_sterr = MCI_AVERAGE('d17_full_sterr')
     d18_sterr = MCI_AVERAGE('d18_sterr')
-    d17_D_sterr = MCI_AVERAGE('d17_full_sterr')
+    d17_D_sterr = MCI_AVERAGE('d17_D_sterr')
 
     D18_sterr = MCI_CALCULATED_VALUE('D18_sterr')
     d13C_sterr = MCI_CALCULATED_VALUE('d13C_sterr')
@@ -176,7 +176,8 @@ class ACQUISITION_FULL(object):
         self.adduct_18 = [ 0, 0]
         self.frag_18 = 3.700725
         self.type = 'full'
-        self.name
+        self.name = ''
+        self.time_c = 0
 
     d17_full=MCI_VALUE('d17_full')
     d18=MCI_VALUE('d18')
@@ -197,6 +198,7 @@ class ACQUISITION_D(object):
         self.adduct_17 = [0, 0]
         self.frag_17= 0.053245
         self.type = 'D'
+        self.time_c = 0
 
     d17_D=MCI_VALUE('d17_D')
     voltSam = MCI_VOLTAGE('voltSam')
@@ -251,12 +253,9 @@ def Isodat_File_Parser(fileName):
     # Rough guess of range where analysis name is, accounting for a large variation in length
     nameBlock = buff[startName+200:startName+400].decode('utf-16')
     #Exact name based on locations of unicode strings directly before and after
-    try:
-        analysisName = nameBlock[(nameBlock.find('Pressadjust')+19):(nameBlock.find('Identifier')-2)]
-        # analysisName = filter(lambda)
-    except UnicodeEncodeError:
-        print('caught a unicode encode error')
-    #quick function to filter out non-ascii chars that are tacked on to end
+
+    analysisName = nameBlock[(nameBlock.find('Pressadjust')+19):(nameBlock.find('Identifier')-2)]
+    # function to filter out non-ascii chars that are tacked on to end
     # and, for that matter, anything else following these
     anf = ''
     for i in analysisName:
@@ -283,41 +282,61 @@ def Isodat_File_Parser(fileName):
     date_str = time.strftime('%m/%d/%Y', time.localtime(time_t_time))
     time_str = time.strftime('%H:%M', time.localtime(time_t_time))
 
+    # 3.6 Deciding if d13C or dD measurement
+    # converting to arrays
+    voltRef_raw = np.asarray(voltRef_raw)
+    voltSam_raw = np.asarray(voltSam_raw)
+
+    if np.mean(voltRef_raw[:,7]) < 5e3:
+        deuteriumMeasurement = True
+    else:
+        deuteriumMeasurement = False
 
 
-    return voltRef_raw, voltSam_raw, analysisName, date_str, time_str
+
+    return voltRef_raw, voltSam_raw, analysisName, date_str, time_str, deuteriumMeasurement, time_t_time
 
 
 
 
-def CIDS_cleaner(analyses):
+def PAMS_cleaner(analyses):
     '''function for cleaning up a parsed CIDS file and alerting to any corrupted analyses'''
 
     # Cleaning up the parsed file
     # because of the way the parser is written, an extra empty analysis is added to the end of the list
-    if not analyses[-1].acqs:
+    if not analyses[-1].acqs_full:
         del analyses[-1]
 
 
     # checking for analyses with not enough acqs, alerting if there are some
-    temp=8
-    lowAcqs= [k for k in analyses if len(k.acqs)<temp]
+    temp_full=8
+    lowAcqs= [k for k in analyses if len(k.acqs_full)<temp_full]
     if not lowAcqs:
-        print 'All analyses have at least %d acquistions' % temp
+        print 'All analyses have at least %d clumped acquistions' % temp_full
 
     else:
-        print 'analyses with too few acqs are:'
-        print '\n'.join(['Sample '+ str(k.num)+ ': '+ k.name +' has ' + str(len(k.acqs)) + ' acquisitions' for k in lowAcqs])
+        print 'analyses with too few clumped acqs are:'
+        print '\n'.join(['Sample '+ str(k.num)+ ': '+ k.name +' has ' + str(len(k.acqs_full)) + ' acquisitions' for k in lowAcqs])
+
+    temp_D=3
+    lowAcqs_D= [k for k in analyses if len(k.acqs_D)<temp_D]
+    if not lowAcqs_D:
+        print 'All analyses have at least %d D acquistions' % temp_D
+
+    else:
+        print 'analyses with too few D acqs are:'
+        print '\n'.join(['Sample '+ str(k.num)+ ': '+ k.name +' has ' + str(len(k.acqs_D)) + ' acquisitions' for k in lowAcqs_D])
+
 
     # converting the voltages and backgrounds to arrays so that they can be easily used to do calculations
-    for i in range(len(analyses)):
-            for j in range(len(analyses[i].acqs)):
-                # converting voltagted to arrays, and doing 3 sig figs to match CIDS Sheet
-                analyses[i].acqs[j].voltSam_raw=np.around(np.asarray(analyses[i].acqs[j].voltSam_raw),3)
-                analyses[i].acqs[j].voltRef_raw=np.around(np.asarray(analyses[i].acqs[j].voltRef_raw),3)
-                analyses[i].acqs[j].background=np.asarray(analyses[i].acqs[j].background)
-                # rounding d13C and d18O of each acq to 3 sig figs to match CIDS sheet
-                (analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas) = np.around((analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas),3)
+    # for i in range(len(analyses)):
+    #         for j in range(len(analyses[i].acqs)):
+    #             # converting voltagted to arrays, and doing 3 sig figs to match CIDS Sheet
+    #             analyses[i].acqs[j].voltSam_raw=np.around(np.asarray(analyses[i].acqs[j].voltSam_raw),3)
+    #             analyses[i].acqs[j].voltRef_raw=np.around(np.asarray(analyses[i].acqs[j].voltRef_raw),3)
+    #             analyses[i].acqs[j].background=np.asarray(analyses[i].acqs[j].background)
+    #             # rounding d13C and d18O of each acq to 3 sig figs to match CIDS sheet
+    #             (analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas) = np.around((analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas),3)
 
 
     print 'All analyses are cleaned, and voltages converted to arrays'
@@ -334,19 +353,19 @@ def FlatList_exporter(analyses,fileName, displayProgress = False):
     counter = 0
     if displayProgress:
         for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_stdev, item.dD,
-            item.dD_sterr,item.d18,item.d18_sterr,item.D18,item.D18_sterr ])
+            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
+            item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr ])
             counter += 1
             if ((counter * 100)*100) % (len(analyses)*100) == 0:
                 print(str((counter*100)/len(analyses)) + '% done')
     else:
         for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_stdev, item.dD,
-            item.dD_sterr,item.d18,item.d18_sterr,item.D18,item.D18_sterr])
+            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
+            item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr])
     export.close()
     return
 
-def CIDS_exporter(analyses, fileName, displayProgress = False):
+def PAMS_exporter(analyses, fileName, displayProgress = False):
     '''Exports a CSV file that is the same format as a traditional CIDS file.
     Python CIDS files are also importable, to load all important sample info
     back into the program'''
@@ -393,19 +412,19 @@ def CIDS_exporter(analyses, fileName, displayProgress = False):
             wrt.writerow(['',d17_D, '', '', '' , d17_full, d18])
 
         wrt.writerow([])
-        wrt.writerow(['','User','date','Type','Sample ID','acq #\'s','D_adduct (2nd-ordr)',
-        'D_adduct (1st-ordr)','full_adduct (2nd-ordr)','full_adduct (1st-ordr)','18_adduct (2nd-ordr)',
-        '18_adduct (1st-ordr)','D_fragCorrection','18_fragCorrection','Fragmenation','d13C (vpdb)',
-        'd13C_sterr','dD (vsmow)','dD_sterr','d47','d47_stdev','D47 (v. Oz)','D47_stdev','D47_sterr','d48', 'd48_stdev','D48','D48_stdev'])
-        wrt.writerow(['__SampleSummary__',analysis.user, analysis.date, analysis.type, analysis.name, analysis.num, analysis.skipFirstAcq, analysis.d13C, analysis.d13C_stdev,
-        analysis.d18O_gas, analysis.d18O_min, analysis.d18O_stdev, analysis.d47, analysis.d47_stdev, analysis.D47_raw,
-        analysis.D47_stdev, analysis.D47_sterr, analysis.d48, analysis.d48_stdev, analysis.D48_raw, analysis.D48_stdev])
+        wrt.writerow(['','User','date','Type','Sample ID','acq #\'s','adduct_D (2nd-ordr)',
+        'adduct_D (1st-ordr)','adduct_full (2nd-ordr)','adduct_full (1st-ordr)','adduct_18 (2nd-ordr)',
+        'adduct_18 (1st-ordr)','D_fragCorrection','18_fragCorrection','Fragmenation','d13C (vpdb)',
+        'd13C_sterr','dD (vsmow)','dD_sterr','D18_raw','D18_sterr'])
+        wrt.writerow(['__SampleSummary__',analysis.user, analysis.date, analysis.type, analysis.name, analysis.num, analysis.adduct_D[0], analysis.adduct_D[1],
+        analysis.adduct_full[0], analysis.adduct_full[1], analysis.adduct_18[0], analysis.adduct_18[1], analysis.mass17_frag, analysis.mass18_frag, analysis.frag, analysis.d13C,
+        analysis.d13C_sterr, analysis.dD, analysis.dD_sterr, analysis.D18_raw, analysis.D18_sterr])
         wrt.writerow(24*['---',])
 
     export.close()
     return
 
-def CIDS_importer(filePath, displayProgress = False):
+def PAMS_importer(filePath, displayProgress = False):
     '''Imports voltage and analysis data that were exported using the CIDS_exporter function'''
     fileImport = open(filePath,'rU')
     fileReader = csv.reader(fileImport, dialect='excel')
@@ -415,10 +434,10 @@ def CIDS_importer(filePath, displayProgress = False):
 
     for line in fileReader:
         if '__NewSample__' in line:
-            analyses.append(CI())
+            analyses.append(MCI())
             continue
-        if '__NewAcq__' in line:
-            analyses[-1].acqs.append(ACQUISITION(0))
+        if '__NewAcq-D__' in line:
+            analyses[-1].acqs_D.append(ACQUISITION_D(0))
             continue
         if '__AcqVoltage__' in line:
             voltIndex = line.index('__AcqVoltage__')
@@ -551,11 +570,11 @@ def MCI_calculation_full(acq, objName):
     R_measured_ref=(acq.voltRef[:,(4,7)]/np.tile(acq.voltRef[:,2],(2,1)).T)
 
     # Subtracting adducts
-    R_measured_sample[:,0] -= (voltSam[:,2]*adduct_17[0] + np.square(voltSam[:,2])*adduct_17[1])
-    R_measured_sample[:,1] -= (voltSam[:,2]*adduct_18[0] + np.square(voltSam[:,2])*adduct_18[1])
+    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[0] + np.square(acq.voltSam[:,2])*acq.adduct_17[1])
+    R_measured_sample[:,1] -= (acq.voltSam[:,2]*acq.adduct_18[0] + np.square(acq.voltSam[:,2])*acq.adduct_18[1])
 
-    R_measured_ref[:,0] -= (voltRef[:,2]*adduct_17[0] + np.square(voltRef[:,2])*adduct_17[1])
-    R_measured_ref[:,1] -= (voltRef[:,2]*adduct_18[0] + np.square(voltRef[:,2])*adduct_18[1])
+    R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[0] + np.square(acq.voltRef[:,2])*acq.adduct_17[1])
+    R_measured_ref[:,1] -= (acq.voltRef[:,2]*acq.adduct_18[0] + np.square(acq.voltRef[:,2])*acq.adduct_18[1])
 
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
@@ -588,8 +607,8 @@ def MCI_calculation_D(acq, objName):
     R_measured_ref = acq.voltRef[:,4]/acq.voltRef[:,2]
 
     # Subtracting adducts
-    R_measured_sample -= (voltSam[:,2]*adduct_17[0] + np.square(voltSam[:,2])*adduct_17[1])
-    R_measured_ref -= (voltRef[:,2]*adduct_17[0] + np.square(voltRef[:,2])*adduct_17[1])
+    R_measured_sample -= (acq.voltSam[:,2]*acq.adduct_17[0] + np.square(acq.voltSam[:,2])*acq.adduct_17[1])
+    R_measured_ref -= (acq.voltRef[:,2]*acq.adduct_17[0] + np.square(acq.voltRef[:,2])*acq.adduct_17[1])
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
 
@@ -608,7 +627,7 @@ def MCI_calculation_D(acq, objName):
 
     d17=delta_measured_mean[0]
 
-    calculatedCIValues = {'d17_full': d17}
+    calculatedCIValues = {'d17_D': d17}
 
     return calculatedCIValues[objName]
 
@@ -617,7 +636,7 @@ def MCI_bulk_solver(z,*extraArgs):
     m, frag = extraArgs # unpacking tuple
 
     rD = 4*z[0]/(1+frag*(z[1]+3*z[0]))-m[0]
-    r13C = (4*z[0]+z[1])/(1+frag*(z[1]+3*z[0]))-m[0]
+    r13C = (4*z[0]+z[1])/(1+frag*(z[1]+3*z[0]))-m[1]
     return(rD,r13C)
 
 def MCI_r_to_c(rD,r13):
@@ -628,13 +647,13 @@ def MCI_r_to_c(rD,r13):
     cH = 1/(1+rD)
     cD = rD/(1+rD)
 
-    c12CH4 = c12*cH^4
-    c12CH3D = 4*c12*cH^3*cD
-    c13CH4 = c13*cH^4
-    c13CH3D = 4*c13*cH^3*cD
-    c12CH2D2 = 6*c12*cH^2*cD^2
+    c12CH4 = c12*cH**4
+    c12CH3D = 4*c12*cH**3*cD
+    c13CH4 = c13*cH**4
+    c13CH3D = 4*c13*cH**3*cD
+    c12CH2D2 = 6*c12*cH**2*cD**2
 
-    return(c12CH4, c12CH3D, c13CH4, c13CH3D, C12CH2D2)
+    return(c12CH4, c12CH3D, c13CH4, c13CH3D, c12CH2D2)
 
 
 def MCI_bulk_comp(analysis, objName):
@@ -655,19 +674,21 @@ def MCI_bulk_comp(analysis, objName):
 
     c12CH4_ref, c12CH3D_ref, c13CH4_ref, c13CH3D_ref, c12CH2D2_ref = MCI_r_to_c(rD_ref,r13_ref)
 
-    m_1 = r17_D*(4*rD_ref)/(1+analysis.frag*(r13C+3*rD_ref))
+    m_1 = r17_D*(4*rD_ref)/(1+analysis.frag*(r13_ref+3*rD_ref))
     m_2 = r17_full*(4*rD_ref+r13_ref)/(1+analysis.frag*(r13_ref+3*rD_ref))
-    m_3 = r18*(6*rD_ref^2+4*rD_ref*r13_ref)/(1+analysis.frag*(r13_ref+3*rD_ref))
+    m_3 = r18*(6*rD_ref**2+4*rD_ref*r13_ref)/(1+analysis.frag*(r13_ref+3*rD_ref))
 
     m = [m_1, m_2]
     z_guess = [0, 0]
-    extraArgs = (m, analysis.frag)
+    extraArgs = (m, analysis.frag,)
 
-    [rD_sa, r13_sa] = root(MCI_bulk_solver,z_guess, args = extraArgs, method = 'lm', options = {'xtol':1e-20, 'ftol':1e-20})
+    bulkSolverResult = root(MCI_bulk_solver,z_guess, args = extraArgs, method = 'lm', options = {'xtol':1e-20, 'ftol':1e-20})
+
+    rD_sa, r13_sa = bulkSolverResult.x
 
     c12CH4_sa, c12CH3D_sa, c13CH4_sa, c13CH3D_sa, c12CH2D2_sa = MCI_r_to_c(rD_sa,r13_sa)
 
-    D18 = 1000*(m_3*c12CH4 + analysis.frag(0.75*c12CH3D_sa+c13CH4_sa)/(c13CH3D_sa+c12CH2D2_sa)-1)
+    D18 = 1000*(m_3*(c12CH4_sa + analysis.frag*(0.75*c12CH3D_sa+c13CH4_sa))/(c13CH3D_sa+c12CH2D2_sa)-1)
 
     dD_sa = (rD_sa/rD_vsmow-1)*1000
     d13_sa = (r13_sa/r13_vpdb-1)*1000
@@ -725,7 +746,7 @@ def CI_comparer(analyses1, analyses2):
 def Sample_type_checker(analyses):
     AllAnalysesHaveType = True
     for i in range(len(analyses)):
-        if analyses[i].type not in ['std','sample','eg','hg']:
+        if analyses[i].type not in ['std1','sample','stdD13','hg']:
             AllAnalysesHaveType = False
             break
 
@@ -733,34 +754,34 @@ def Sample_type_checker(analyses):
 
 def Get_types_auto(analyses):
     '''Function to assign the correct type to every analysis automatically, given a few assumptions:
-    stds are Carrara, NBS-19, or TV03, all gases have 'BOC' in name, and all egs have '25' in name)'''
+    stds are +1 std or +D+13, heated gases have ' hg ' in name, everythin else is a sample)'''
 
     print('Automatically assigning analyses types ')
     choice = raw_input('(s)top process, see (n)aming guidelines, or hit any other key to continue ').lower()
     if choice == 's':
         return(analyses)
     elif choice == 'n':
-        print('1. Standards must contain words "carrara", "TV03", or "NBS-19" ')
-        print('2. 25 C equilibrated gases must contain "BOC" AND "25" ')
-        print('3. 1000 C heated gases must contain "BOC" AND NOT "25" AND < 10 chars ')
+        print('1. +1 std must contain "std" AND "+1" ')
+        print('2. +D+13 std "+D" AND "+13" ')
+        print('3. Heated gases must contain "hg" AND < 14 chars ')
         print('4. Analyses that already have a valid type are not modified ')
+        print('')
         return(analyses)
     else:
         for i in range(len(analyses)):
-            if analyses[i].type in ['std', 'eg', 'hg', 'sample']:
+            if analyses[i].type in ['std1', 'stdD13', 'hg', 'sample']:
                 continue
             else:
                 name = analyses[i].name.lower()
-                if ('carrara' in name) or ('tv03' in name) or ('nbs-19' in name):
-                    analyses[i].type = 'std';
+                if ('+1' in name) and ('std' in name):
+                    analyses[i].type = 'std1';
                     continue
-                elif ('boc' in name):
-                    if ('25' in name):
-                        analyses[i].type = 'eg'
-                        continue
-                    elif (len(name) < 10):
-                        analyses[i].type = 'hg'
-                        continue
+                elif ('+d+13' in name):
+                    analyses[i].type = 'stdD13'
+                    continue
+                elif ('hg' in name) and (len(name) < 14):
+                    analyses[i].type = 'hg'
+                    continue
                 else:
                     analyses[i].type = 'sample'
     if Sample_type_checker(analyses):
@@ -775,14 +796,14 @@ def Get_types_manual(analyses):
 
     print('Manually assigning analyses types ')
     for i in range(len(analyses)):
-        if analyses[i].type not in ['eg', 'hg', 'sample', 'std']:
-            typeChoice = raw_input('Type for: ' + analyses[i].name + ' -> (e)g, (h)g, (s)ample, or s(t)d?').lower()
-            if typeChoice == 'e':
-                analyses[i].type = 'eg'
+        if analyses[i].type not in ['std1', 'stdD13', 'sample', 'hg']:
+            typeChoice = raw_input('Type for: ' + analyses[i].name + ' -> (h)g, (s)ample, std(D)13, or std(1)?').lower()
+            if typeChoice == 'd':
+                analyses[i].type = 'stdD13'
             elif typeChoice == 'h':
                 analyses[i].type = 'hg'
-            elif typeChoice == 't':
-                analyses[i].type = 'std'
+            elif typeChoice == '1':
+                analyses[i].type = 'std1'
             else:
                 analyses[i].type = 'sample'
 
@@ -961,19 +982,14 @@ def Daeron_data_processer(analyses, showFigures = False):
 
 def ExportSequence(analyses):
     '''Most common export sequence'''
-    print('Exporting to temporary CIDS and FlatList files ')
-    print('Exporting full acqs to a CIDS sheet...')
-    exportNameCIDS = 'autoCIDS_Export'
-    CIDS_exporter(analyses, exportNameCIDS)
+    print('Exporting to temporary PAMS and FlatList files ')
+    print('Exporting full acqs to a PAMS sheet...')
+    exportNamePAMS = 'autoPAMS_Export'
+    PAMS_exporter(analyses, exportNamePAMS)
     print('Exporting analyses to a flatlist...')
     exportNameFlatlist = 'autoFlatListExport'
     FlatList_exporter(analyses,exportNameFlatlist)
     print('Analyses successfully exported')
-    doDaeron = raw_input('Export analyses for a Daeron-style ARF reduction (y/n)? ')
-    if doDaeron.lower() == 'y':
-        exportNameDaeron = 'autoDaeronExport'
-        Get_gases(analyses)
-        Daeron_exporter(analyses,exportNameDaeron)
 
     return
 
@@ -997,11 +1013,11 @@ def ExportSequence(analyses):
 #
 #     return(voltages[objName])
 
-def CI_background_correction(instance, objName):
+def MCI_background_correction(instance, objName):
     # voltSamTemp = np.copy(instance.voltSam_raw)
     # voltRefTemp = np.copy(instance.voltRef_raw)
 
-    slopeArray = np.array([0, 0 , 0, mass47PblSlope, 0, 0])
+    slopeArray = np.array([0, 0 , 0, 0, 0, 0, 0, 0, 0, 0])
     # interceptArray  = np.array([0, 0, 0, mass47PblIntercept, 0, 0])
 
     # mass 47 correction
