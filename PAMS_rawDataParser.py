@@ -17,7 +17,6 @@ while True:
 
     if taskChoice == 'I':
         print('This script turns raw isodat files into a FLATLIST ')
-        analyses = []
         # list containing instances of CI class, each with their own acq objects
         # list containing numbers of acquisitions already imported
         imported=[]
@@ -51,6 +50,7 @@ while True:
                             nameErrorChoice = raw_input('Are you sure you want to include this acquisition (y/n)? ')
                             if nameErrorChoice.lower() == 'n':
                                 continue
+
                         imported.append(acqNum)
                         if deuteriumMeasurement:
                             analyses[-1].acqs_D.append(PAMS_func.ACQUISITION_D(acqNum))
@@ -101,7 +101,6 @@ while True:
             stopNumIndex = acqList.index(stopName)
 
             firstAcq = False
-            measuringClumped = False
             for i in range(startNumIndex,stopNumIndex+1):
                 acqName = acqFolder +'/'+ acqList[i]
                 # Catches files with a size less than 130 kb and skips them
@@ -122,10 +121,29 @@ while True:
                 #     continue
                 # if first acquision of folder, new sample
                 if len(analyses) == 0:
-                    firstAcq = True
+                    analyses.append(PAMS_func.MCI())
+                    analyses[-1].name = rawSampleName
+                    analyses[-1].num = acqNum
+                    analyses[-1].date = date_str
+                    firstAcq = False
+                    print('Found new sample, with name: ' + rawSampleName)
                 # if had been measuring clumped species, and now measuring D, new samples
-                if measuringClumped and deuteriumMeasurement:
-                    firstAcq = True
+                if deuteriumMeasurement and len(analyses[-1].acqs_D)>0:
+                    tempAcq = PAMS_func.ACQUISITION_D(acqNum)
+                    tempAcq.voltSam_raw = voltSam_raw
+                    tempAcq.voltRef_raw = voltRef_raw
+                    d17_temp = tempAcq.d17_D
+                    d17_last = analyses[-1].acqs_D[-1].d17_D
+                    if abs(d17_temp-d17_last) > 8 and analyses[-1].name.lower() != rawSampleName.lower():
+                        firstAcq = True
+                elif not deuteriumMeasurement and len(analyses[-1].acqs_full)>0:
+                    tempAcq = PAMS_func.ACQUISITION_FULL(acqNum)
+                    tempAcq.voltSam_raw = voltSam_raw
+                    tempAcq.voltRef_raw = voltRef_raw
+                    d17_temp = tempAcq.d17_full
+                    d17_last = analyses[-1].acqs_full[-1].d17_full
+                    if abs(d17_temp-d17_last) > 1 and analyses[-1].name.lower() != rawSampleName.lower():
+                        firstAcq = True
 
                 if firstAcq:
                     analyses.append(PAMS_func.MCI())
@@ -147,7 +165,7 @@ while True:
                         analyses.append(PAMS_func.MCI())
                         analyses[-1].name = rawSampleName
                         analyses[-1].num = acqNum
-                        analyses[-1].date = date
+                        analyses[-1].date = date_str
                         firstAcq = False
                     else:
                         print('Including acquisition ')
@@ -162,7 +180,6 @@ while True:
                     analyses[-1].acqs_D[-1].time = time_str
                     analyses[-1].acqs_D[-1].name = rawSampleName
                     analyses[-1].acqs_D[-1].time_c = time_c
-                    measuringClumped = False
 
                 else:
                     analyses[-1].acqs_full.append(PAMS_func.ACQUISITION_FULL(acqNum))
@@ -172,7 +189,6 @@ while True:
                     analyses[-1].acqs_full[-1].time = time_str
                     analyses[-1].acqs_full[-1].name = rawSampleName
                     analyses[-1].acqs_full[-1].time_c = time_c
-                    measuringClumped = True
 
                 print('Acquisition '+str(acqNum)+ ' successfully imported.')
 
@@ -199,32 +215,32 @@ while True:
                 PAMS_func.ExportSequence(analyses)
 
     #
-    # if taskChoice == 'C':
-    #     print('Importing analyses from one or more auto-formatted CIDS files')
-    #     while True:
-    #         filePath = raw_input('Drag in a file or q to stop importing: ').strip().lower()
-    #         if (filePath == 'q' or len(filePath) == 0):
-    #             break
-    #         if '.csv' not in filePath:
-    #             print('file must be a .csv format')
-    #             continue
-    #         filePath = filePath.strip('"')
-    #         filePath = os.path.abspath(filePath)
-    #         print('Importing file... ')
-    #         newAnalyses = CIDS_func.CIDS_importer(filePath)
-    #         print('{0} new analyses imported from file'.format(len(newAnalyses)))
-    #         analyses += newAnalyses
-    #         print('Checking analyses types...')
-    #         while not CIDS_func.Sample_type_checker(analyses):
-    #             print('Some analyses types need to be assigned ')
-    #             typeGetterMode = raw_input('Get analyses types (a)utomatically or (m)anually? ').lower()
-    #             if typeGetterMode == 'm':
-    #                 analyses = CIDS_func.Get_types_manual(analyses)
-    #             else:
-    #                 analyses = CIDS_func.Get_types_auto(analyses)
-    #
-    #         print('Successfully added to dataset')
-    #     print('{0} total analyses imported'.format(len(analyses)))
+    if taskChoice == 'P':
+        print('Importing analyses from one or more auto-formatted PAMS files')
+        while True:
+            filePath = raw_input('Drag in a file or q to stop importing: ').strip().lower()
+            if (filePath == 'q' or len(filePath) == 0):
+                break
+            if '.csv' not in filePath:
+                print('file must be a .csv format')
+                continue
+            filePath = filePath.strip('"')
+            filePath = os.path.abspath(filePath)
+            print('Importing file... ')
+            newAnalyses = PAMS_func.PAMS_importer(filePath)
+            print('{0} new analyses imported from file'.format(len(newAnalyses)))
+            analyses += newAnalyses
+            print('Checking analyses types...')
+            while not PAMS_func.Sample_type_checker(analyses):
+                print('Some analyses types need to be assigned ')
+                typeGetterMode = raw_input('Get analyses types (a)utomatically or (m)anually? ').lower()
+                if typeGetterMode == 'm':
+                    analyses = PAMS_func.Get_types_manual(analyses)
+                else:
+                    analyses = PAMS_func.Get_types_auto(analyses)
+
+            print('Successfully added to dataset')
+        print('{0} total analyses imported'.format(len(analyses)))
 
     if taskChoice == 'E':
         if len(analyses) == 0:
@@ -240,7 +256,7 @@ while True:
                     analyses = PAMS_func.Get_types_auto(analyses)
 
             PAMS_func.ExportSequence(analyses)
-    #
+        #
     # if taskChoice == 'P':
     #     print('Processing data in all relevant reference frames')
     #     print('Processing data in caltech ref frame')

@@ -425,12 +425,12 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
     return
 
 def PAMS_importer(filePath, displayProgress = False):
-    '''Imports voltage and analysis data that were exported using the CIDS_exporter function'''
+    '''Imports voltage and analysis data that were exported using the PAMS_exporter function'''
     fileImport = open(filePath,'rU')
     fileReader = csv.reader(fileImport, dialect='excel')
     analyses = []
 
-    cycles_in_acqs = 7
+    cycles_in_acqs = 10
 
     for line in fileReader:
         if '__NewSample__' in line:
@@ -438,36 +438,60 @@ def PAMS_importer(filePath, displayProgress = False):
             continue
         if '__NewAcq-D__' in line:
             analyses[-1].acqs_D.append(ACQUISITION_D(0))
+            importingDeuterium = True
+            continue
+        if '__NewAcq-Full__' in line:
+            analyses[-1].acqs_full.append(ACQUISITION_FULL(0))
+            importingDeuterium = False
             continue
         if '__AcqVoltage__' in line:
             voltIndex = line.index('__AcqVoltage__')
             cycle = 0
-            voltRefs = [float(vr) for vr in line[voltIndex+8:voltIndex+14]]
-            analyses[-1].acqs[-1].voltRef_raw.append(voltRefs)
+            voltRefs = [float(vr) for vr in line[voltIndex+12:voltIndex+22]]
+            if importingDeuterium:
+                analyses[-1].acqs_D[-1].voltRef_raw.append(voltRefs)
+            else:
+                analyses[-1].acqs_full[-1].voltRef_raw.append(voltRefs)
             continue
         if cycle < (cycles_in_acqs):
-            voltSams=[float(vs) for vs in line[voltIndex+2:voltIndex+8]]
-            voltRefs = [float(vr) for vr in line[voltIndex+8:voltIndex+14]]
-            analyses[-1].acqs[-1].voltSam_raw.append(voltSams)
-            analyses[-1].acqs[-1].voltRef_raw.append(voltRefs)
+            voltSams=[float(vs) for vs in line[voltIndex+2:voltIndex+12]]
+            voltRefs = [float(vr) for vr in line[voltIndex+12:voltIndex+22]]
+            if importingDeuterium:
+                analyses[-1].acqs_D[-1].voltSam_raw.append(voltSams)
+                analyses[-1].acqs_D[-1].voltRef_raw.append(voltRefs)
+            else:
+                analyses[-1].acqs_full[-1].voltSam_raw.append(voltSams)
+                analyses[-1].acqs_full[-1].voltRef_raw.append(voltRefs)
             cycle += 1
             continue
         if '__AcqInfo__' in line:
             acqIndex = line.index('__AcqInfo__')
-            analyses[-1].acqs[-1].acqNum = float(line[acqIndex + 1])
-            analyses[-1].acqs[-1].date = line[acqIndex + 2]
-            analyses[-1].acqs[-1].d13Cref = float(line[acqIndex + 3])
-            analyses[-1].acqs[-1].d18Oref = float(line[acqIndex + 4])
-            analyses[-1].acqs[-1].d13C = float(line[acqIndex + 7])
-            analyses[-1].acqs[-1].d18O_gas = float(line[acqIndex + 8])
-            analyses[-1].acqs[-1].voltRef_raw = np.asarray(analyses[-1].acqs[-1].voltRef_raw)
-            analyses[-1].acqs[-1].voltSam_raw = np.asarray(analyses[-1].acqs[-1].voltSam_raw)
+            measType = line[acqIndex+4]
+            if measType == 'full':
+                analyses[-1].acqs_full[-1].acqNum = float(line[acqIndex + 1])
+                analyses[-1].acqs_full[-1].date = line[acqIndex + 2]
+                analyses[-1].acqs_full[-1].voltRef_raw = np.asarray(analyses[-1].acqs_full[-1].voltRef_raw)
+                analyses[-1].acqs_full[-1].voltSam_raw = np.asarray(analyses[-1].acqs_full[-1].voltSam_raw)
+
+            elif measType == 'D':
+                analyses[-1].acqs_D[-1].acqNum = float(line[acqIndex + 1])
+                analyses[-1].acqs_D[-1].date = line[acqIndex + 2]
+                analyses[-1].acqs_D[-1].voltRef_raw = np.asarray(analyses[-1].acqs_D[-1].voltRef_raw)
+                analyses[-1].acqs_D[-1].voltSam_raw = np.asarray(analyses[-1].acqs_D[-1].voltSam_raw)
             continue
         if '__SampleSummary__' in line:
             summaryIndex = line.index('__SampleSummary__')
             [analyses[-1].user, analyses[-1].date, analyses[-1].type, analyses[-1].name] = line[summaryIndex + 1:summaryIndex+5]
             analyses[-1].num = int(line[summaryIndex + 5])
-            analyses[-1].skipFirstAcq = bool(line[summaryIndex + 6])
+            [analyses[-1].adduct_D[0],analyses[-1].adduct_D[1],analyses[-1].adduct_full[0],analyses[-1].adduct_full[1], analyses[-1].adduct_18[0],analyses[-1].adduct_18[1]] = [float(i) for i in line[summaryIndex + 6:summaryIndex+12]]
+            [analyses[-1].mass17_frag,analyses[-1].mass18_frag, analyses[-1].frag] = [float(i) for i in line[summaryIndex+12:summaryIndex+15]]
+            for i in analyses[-1].acqs_D:
+                i.adduct_17 = analyses[-1].adduct_D
+                i.frag_17 = analyses[-1].mass17_frag
+            for j in analyses[-1].acqs_full:
+                j.adduct_17 = analyses[-1].adduct_full
+                j.adduct_18 = analyses[-1].adduct_18
+                j.frag_18 = analyses[-1].mass18_frag
 
     fileImport.close()
     return analyses
@@ -774,10 +798,12 @@ def Get_types_auto(analyses):
             else:
                 name = analyses[i].name.lower()
                 if ('+1' in name) and ('std' in name):
+                    analyses[i].name = str('"' + analyses[i].name + '"')
                     analyses[i].type = 'std1';
                     continue
                 elif ('+d+13' in name):
                     analyses[i].type = 'stdD13'
+                    analyses[i].name = str('"' + analyses[i].name + '"')
                     continue
                 elif ('hg' in name) and (len(name) < 14):
                     analyses[i].type = 'hg'
@@ -800,10 +826,12 @@ def Get_types_manual(analyses):
             typeChoice = raw_input('Type for: ' + analyses[i].name + ' -> (h)g, (s)ample, std(D)13, or std(1)?').lower()
             if typeChoice == 'd':
                 analyses[i].type = 'stdD13'
+                analyses[i].name = str('"' + analyses[i].name + '"')
             elif typeChoice == 'h':
                 analyses[i].type = 'hg'
             elif typeChoice == '1':
                 analyses[i].type = 'std1'
+                analyses[i].name = str('"' + analyses[i].name + '"')
             else:
                 analyses[i].type = 'sample'
 
