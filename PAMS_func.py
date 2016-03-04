@@ -12,10 +12,8 @@ import xlcor47_modified
 import string
 from scipy.optimize import root
 
-
 class MCI_VALUE(object):
-    '''subclass defining how important isotopic ratios are calculated, and d18O_mineral'''
-
+    '''subclass defining how important isotopic ratios are calculated'''
     def __init__(self, name):
         self.name = name
 
@@ -42,10 +40,8 @@ class MCI_AVERAGE(object):
         if len(instance.acqs_full)>=1:
             if self.name in ['d17_full','d17_full_sterr','d17_D','d17_D_sterr','d18','d18_sterr']:
                 return np.around(MCI_averages(instance, self.name),3)
-
         else:
             raise ValueError('Sample has no acquisitions to average')
-
 
     def __set__(self, obj, value):
         raise AttributeError('Cannot change MCI averaging scheme')
@@ -66,7 +62,6 @@ class MCI_CALCULATED_VALUE(object):
         else:
             raise ValueError('Sample D47_raw is out of range')
 
-
     def __set__(self, obj, value):
         raise AttributeError('Cannot change CI correction scheme')
 
@@ -82,7 +77,6 @@ class MCI_UNIVERSAL_VALUE(object):
     def __get__(self,instance,cls):
         if self.name in ['hg_slope', 'hg_intercept']:
             return np.around(MCI_hg_values(instance, self.name),5)
-
         else:
             raise ValueError('Not a valid value')
 
@@ -101,16 +95,8 @@ class MCI_CORRECTED_VALUE(object):
     def __get__(self,instance,cls):
         if self.name in ['D18_hg']:
             return np.around(MCI_hg_corrector(instance, self.name),3)
-        # elif self.name in ['D47_ARF_acid']:
-        #     return np.around(CI_ARF_acid_corrector(instance, self.name),3)
-        # elif self.name in ['T_D47_ARF']:
-        #     return np.around(CI_temp_calibrations(instance, self.name),2)
-        # elif self.name in ['D47_ARF_stdCorr']:
-        #     return np.around(Carrara_carbonate_correction_ARF(instance, self.name), 3)
-
         else:
             raise ValueError('Sample D47_raw is out of range')
-
 
     def __set__(self, obj, value):
         raise AttributeError('Cannot change CI correction scheme')
@@ -118,24 +104,6 @@ class MCI_CORRECTED_VALUE(object):
     def __delete__(self, instance):
         raise AttributeError('Cannot delete CI corretion scheme')
 
-# class CI_UNIVERSAL_VALUE(object):
-#     '''subclass defining how heated gases are taken'''
-#
-#     def __init__(self, name):
-#         self.name = name
-#
-#     def __get__(self,instance,cls):
-#         if self.name in ['hg_slope', 'hg_intercept']:
-#             return np.around(CI_hg_values(instance, self.name),5)
-#
-#         else:
-#             raise ValueError('Not a valid value')
-#
-#     def __set__(self, obj, value):
-#         raise AttributeError('Cannot change individual hg value')
-#
-#     def __delete__(self, instance):
-#         raise AttributeError('Cannot delete individual hg value')
 
 class MCI_VOLTAGE(object):
     '''subclass defining how raw voltages are corrected'''
@@ -182,8 +150,6 @@ class MCI(object):
         self.stretch_17 = 0.053245
         self.frag = 0.789
 
-
-
     d17_full = MCI_AVERAGE('d17_full')
     d18 = MCI_AVERAGE('d18')
     d17_D = MCI_AVERAGE('d17_D')
@@ -204,15 +170,8 @@ class MCI(object):
     hg_slope = MCI_UNIVERSAL_VALUE('hg_slope')
     hg_intercept = MCI_UNIVERSAL_VALUE('hg_intercept')
 
-    # D47_CRF = CI_CORRECTED_VALUE('D47_CRF')
-    # hg_slope = CI_UNIVERSAL_VALUE('hg_slope')
-    # hg_intercept = CI_UNIVERSAL_VALUE('hg_intercept')
-
-
-
 class ACQUISITION_FULL(object):
     "A class for all the attributes of a single clumped isotope acquision"
-
 
     def __init__(self,acqNum):
         self.acqNum=acqNum
@@ -235,8 +194,6 @@ class ACQUISITION_FULL(object):
 
 class ACQUISITION_D(object):
     "A class for all the attributes of a single clumped isotope acquision"
-
-
     def __init__(self,acqNum):
         self.acqNum=acqNum
         self.voltSam_raw=[]
@@ -253,8 +210,6 @@ class ACQUISITION_D(object):
     d17_D=MCI_VALUE('d17_D')
     voltSam = MCI_VOLTAGE('voltSam')
     voltRef = MCI_VOLTAGE('voltRef')
-
-
 
 def Isodat_File_Parser(fileName):
     '''Reads in a .did file (Isodat acquisition file), returns the raw voltages for
@@ -284,7 +239,6 @@ def Isodat_File_Parser(fileName):
         startSamVolt=start+2196+i*196 #observed location of sample gas voltage cycles
         voltSam_raw.append(struct.unpack('10d',buff[startSamVolt:(startSamVolt+10*8)]))
 
-
     # 3.2 whether or not method is a CO2_multiply or a *_start
     firstAcq = False
     startMethod = buff.find('CDualInletBlockData')
@@ -303,7 +257,6 @@ def Isodat_File_Parser(fileName):
     # Rough guess of range where analysis name is, accounting for a large variation in length
     nameBlock = buff[startName+200:startName+400].decode('utf-16')
     #Exact name based on locations of unicode strings directly before and after
-
     analysisName = nameBlock[(nameBlock.find('Pressadjust')+19):(nameBlock.find('Identifier')-2)]
     # function to filter out non-ascii chars that are tacked on to end
     # and, for that matter, anything else following these
@@ -312,7 +265,6 @@ def Isodat_File_Parser(fileName):
         if i not in string.printable:
             break
         anf += i
-
     # Encode as ascii for consistency
     analysisName = anf.encode('ascii', 'ignore')
 
@@ -342,22 +294,14 @@ def Isodat_File_Parser(fileName):
     else:
         deuteriumMeasurement = False
 
-
-
     return voltRef_raw, voltSam_raw, analysisName, date_str, time_str, deuteriumMeasurement, time_t_time
-
-
-
 
 def PAMS_cleaner(analyses):
     '''function for cleaning up a parsed CIDS file and alerting to any corrupted analyses'''
-
     # Cleaning up the parsed file
     # because of the way the parser is written, an extra empty analysis is added to the end of the list
     if not analyses[-1].acqs_full:
         del analyses[-1]
-
-
     # checking for analyses with not enough acqs, alerting if there are some
     temp_full=8
     lowAcqs= [k for k in analyses if len(k.acqs_full)<temp_full]
@@ -370,7 +314,6 @@ def PAMS_cleaner(analyses):
         for i in lowAcqs:
             if len(i.acqs_full) <=1:
                 analyses.remove(i)
-
     temp_D=3
     lowAcqs_D= [k for k in analyses if len(k.acqs_D)<temp_D]
     if not lowAcqs_D:
@@ -407,7 +350,7 @@ def PAMS_cleaner(analyses):
             for l in i.acqs_full:
                 [l.adduct_17, l.adduct_18] = [i.adduct_full, i.adduct_18]
 
-    changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n)').lower()
+    changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n)' ).lower()
     if changeStretchingCorrections == 'y':
         for i in analyses:
             print('dD stretching correction is currently {0}'.format(i.stretch_17))
@@ -419,21 +362,6 @@ def PAMS_cleaner(analyses):
             changeIt2 = raw_input('Input new one or press enter to keep: ').lower()
             if len(changeIt2) > 0:
                 i.stretch_18 = float(changeIt2)
-
-
-
-
-
-    # converting the voltages and backgrounds to arrays so that they can be easily used to do calculations
-    # for i in range(len(analyses)):
-    #         for j in range(len(analyses[i].acqs)):
-    #             # converting voltagted to arrays, and doing 3 sig figs to match CIDS Sheet
-    #             analyses[i].acqs[j].voltSam_raw=np.around(np.asarray(analyses[i].acqs[j].voltSam_raw),3)
-    #             analyses[i].acqs[j].voltRef_raw=np.around(np.asarray(analyses[i].acqs[j].voltRef_raw),3)
-    #             analyses[i].acqs[j].background=np.asarray(analyses[i].acqs[j].background)
-    #             # rounding d13C and d18O of each acq to 3 sig figs to match CIDS sheet
-    #             (analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas) = np.around((analyses[i].acqs[j].d13C,analyses[i].acqs[j].d18O_gas),3)
-
 
     print 'All analyses are cleaned, and voltages converted to arrays'
 
@@ -597,10 +525,11 @@ def PAMS_importer(filePath, displayProgress = False):
     fileImport.close()
     return analyses
 
-def
+def MCI_stretching_determination(analyses, showFigures = True):
+    ''' Fuction to determine the stretching corrections and '''
 
 def MCI_hg_data_corrector(analyses, showFigures = True):
-    '''Extended function to do all aspects of CRF data correction'''
+    ''' Function to determine heated gas line, plot it, and apply it to all samples '''
 
     # First, make a list of all hgs
 
@@ -914,88 +843,6 @@ def Get_types_manual(analyses):
     return(analyses)
 
 
-
-
-#
-# def CI_48_excess_checker(analyses, showFigures = False):
-#     '''Checks for 48 excess using hg slope and int, based on a certain pre-specified tolerance'''
-#     D48_excess_tolerance = 1
-#     hgs = [i for i in analyses if i.type == 'hg']
-#     hg_slope_48, hg_intercept_48, r_48, sm_48, sb_48, xc_48, yc_, ct_ = lsqcubic(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
-#     np.asarray([i.d48_stdev for i in hgs]), np.asarray([i.D48_stdev for i in hgs]))
-#     for i in analyses:
-#         D48_predicted = i.d48*hg_slope_48 + hg_intercept_48
-#         D48_excess_value = i.D48_raw - D48_predicted
-#         if np.abs(D48_excess_value) > 1:
-#             i.D48_excess = True
-#             print('D48 excess found for sample: ' + i.name + ', ' + str(i.num))
-#
-#
-#     if showFigures:
-#         plt.figure(1)
-#         plt.subplot(2,1,1)
-#         d48s = np.asarray([i.d48 for i in hgs])
-#         D48s_model = d48s * hg_slope_48 + hg_intercept_48
-#         # First, plotting the D48 line, TODO: include regression
-#         plt.figure(1).hold(True)
-#         plt.errorbar(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
-#         xerr = np.asarray([i.d48_stdev for i in hgs]), yerr = np.asarray([i.D48_stdev for i in hgs]),
-#         fmt = 'bo')
-#         plt.plot(d48s, D48s_model,'r-')
-#         plt.xlabel(ur'$\delta^{48} \/ ( \u2030 $)')
-#         plt.ylabel(ur'$\Delta_{48} \/ ( \u2030 $)')
-#
-#         # Plotting all samples in D47 vs d47 space,
-#         plt.subplot(2,1,2)
-#         plt.errorbar(np.asarray([i.d47 for i in analyses]), np.asarray([i.D47_raw for i in analyses]),
-#         xerr = np.asarray([i.d47_stdev for i in analyses]), yerr = np.asarray([i.D47_sterr for i in analyses]),
-#         fmt = 'o')
-#         plt.xlabel(ur'$\delta^{47} \/ ( \u2030 $)')
-#         plt.ylabel(ur'$\Delta_{47} \/ ( \u2030 $)')
-#         # plt.savefig('D48_line.pdf', format = 'pdf')
-#         plt.show()
-#
-#
-#     return
-#
-#
-#
-#
-#
-# def Daeron_data_creator(analyses):
-#     '''Creates a list of dictionaries in the format needed for M. Daeron's data
-#     processing script '''
-#     daeronData = []
-#     for i in analyses:
-#         daeronData.append({'label': i.name, 'd47': i.d47, 'rawD47': i.D47_raw,
-#         'srawD47': i.D47_sterr} )
-#         if i.type == 'hg':
-#             daeronData[-1]['TCO2eq'] = 1000.0
-#             daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(1000.0)
-#         elif i.type == 'eg':
-#             daeronData[-1]['TCO2eq'] = 25.0
-#             daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(25.0)
-#     return(daeronData)
-#
-# def Daeron_data_processer(analyses, showFigures = False):
-#     '''Performs Daeron-style correction to put clumped isotope data into the ARF'''
-#
-#     daeronData = Daeron_data_creator(analyses)
-#
-#     global daeronBestFitParams, CorrelationMatrix
-#     daeronBestFitParams, CorrelationMatrix = xlcor47_modified.process_data(daeronData)
-#
-#     for i in range(len(daeronData)):
-#         analyses[i].D47_ARF = daeronData[i]['corD47']
-#         analyses[i].D47_error_internal = daeronData[i]['scorD47_internal']
-#         analyses[i].D47_error_model = daeronData[i]['scorD47_model']
-#         analyses[i].D47_error_all = daeronData[i]['scorD47_all']
-#
-#     if showFigures:
-#         xlcor47_modified.plot_data( daeronData, daeronBestFitParams, CorrelationMatrix ,'filename')
-#
-#     return
-
 def ExportSequence(analyses):
     '''Most common export sequence'''
     print('Exporting to temporary PAMS and FlatList files ')
@@ -1009,25 +856,6 @@ def ExportSequence(analyses):
 
     return
 
-# def CI_background_correction(instance, objName):
-#     voltSamTemp = np.copy(instance.voltSam_raw)
-#     voltRefTemp = np.copy(instance.voltRef_raw)
-#
-#     slopeArray = np.array([0, 0 , 0, mass47PblSlope, 0, 0])
-#     interceptArray  = np.array([0, 0, 0, mass47PblIntercept, 0, 0])
-#
-#     # mass 47 correction
-#     try:
-#         # print('Correcting voltages now')
-#         # print('using this mass47 slope: '+ str(mass47PblSlope))
-#         voltSamTemp[:,3] = voltSamTemp[:,3] - mass47PblSlope * voltSamTemp[:,0] - mass47PblIntercept
-#         voltRefTemp[:,3] = voltRefTemp[:,3] - mass47PblSlope * voltRefTemp[:,0] - mass47PblIntercept
-#     except(IndexError):
-#         return 0
-#
-#     voltages = {'voltSam': voltSamTemp, 'voltRef': voltRefTemp}
-#
-#     return(voltages[objName])
 
 def MCI_background_correction(instance, objName):
     # voltSamTemp = np.copy(instance.voltSam_raw)
@@ -1048,14 +876,6 @@ def MCI_background_correction(instance, objName):
     voltages = {'voltSam': voltSamTemp, 'voltRef': voltRefTemp}
 
     return(voltages[objName])
-
-#
-# def Set_mass_47_pbl(pblSlope):
-#     global mass47PblSlope
-#     mass47PblSlope = pblSlope
-#     # mass47PblIntercept = pblIntercept
-
-
 
 
 def lsqfitma(X, Y):
