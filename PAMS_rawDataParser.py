@@ -13,7 +13,7 @@ analyses = []
 print('Welcome to the methane clumped isotope importer/exporter')
 while True:
     print('Please select a task:')
-    taskChoice = raw_input(' (I)mport from raw isodat files \n Import from (P)AMS file \n (E)xport to PAMS and FLATLIST \n (A)nalyze data \n (Q)uit \n ').upper()
+    taskChoice = raw_input(' (I)mport from raw isodat files \n Import from (P)AMS file \n (E)xport to PAMS and FLATLIST \n (C)alculate stretching corr and hg line \n (Q)uit \n ').upper()
 
     if taskChoice == 'I':
         print('This script turns raw isodat files into a FLATLIST ')
@@ -87,11 +87,17 @@ while True:
                 print("No acquisiton files ('.did') found in folder ")
                 quit()
             acqList=sorted(acqList)
-            startNum = raw_input('Number of first acquisition to be processed: ')
-            stopNum = raw_input('Number of last acquisition to be processed: ')
+            startNum = raw_input('Number of first acquisition to be processed, or (f)irst: ').lower()
+            stopNum = raw_input('Number of last acquisition to be processed, or (l)ast: ').lower()
             #convert to int first to remove any leading zeros
-            startNum = int(startNum)
-            stopNum = int(stopNum)
+            if startNum in ['f', '0', '']:
+                startNum = int(acqList[0].rstrip('.did').replace('Acquisition-',''))
+            else:
+                startNum = int(startNum)
+            if stopNum in ['l', '-1', 'end', '']:
+                stopNum = int(acqList[-1].rstrip('.did').replace('Acquisition-',''))
+            else:
+                stopNum = int(stopNum)
 
             #now, adding the proper number of leading zeros in order to get an exact match
             startName = 'Acquisition-' + (4-len(str(startNum)))*'0' + str(startNum) + '.did'
@@ -125,6 +131,7 @@ while True:
                     analyses[-1].name = rawSampleName
                     analyses[-1].num = acqNum
                     analyses[-1].date = date_str
+                    lastSampleName = rawSampleName
                     firstAcq = False
                     print('Found new sample, with name: ' + rawSampleName)
                 # if had been measuring clumped species, and now measuring D, new samples
@@ -152,10 +159,11 @@ while True:
                     analyses[-1].date = date_str
                     firstAcq = False
                     print('Found new sample, with name: ' + rawSampleName)
-
                 # Catching case where name in file does not match current acq name
-                if analyses[-1].name.lower() != rawSampleName.lower() :
-                    print('Sample name: ' + analyses[-1].name + ' does not match name in file: ' + rawSampleName + ' ')
+
+                if not firstAcq and rawSampleName.lower() not in [lastSampleName.lower(), analyses[-1].name.lower()] :
+                    print('Old sample name: ' + analyses[-1].name + ' does not match name in this file: ' + rawSampleName + ' ')
+                    print('Last d17 measurement: {0:.3f}, this d17 measurement: {1:.3f}'.format(d17_last, d17_temp))
                     nameErrorChoice = raw_input('(s)kip acquisition, (i)nclude it, or make a (n)ew sample from it? ')
                     if nameErrorChoice.lower() == 's':
                         print('Skipping acquisition ')
@@ -169,6 +177,32 @@ while True:
                         firstAcq = False
                     else:
                         print('Including acquisition ')
+                # Catching case where just d17s don't match up
+                # elif not firstAcq:
+                #     if abs(d17_temp-d17_last) > (8*deuteriumMeasurement + 1*(not deuteriumMeasurement)):
+                #         print('d17 mismatch detected in sample {0} '.format(rawSampleName))
+                #         print('Last d17 measurement: {0:.3f}, this d17 measurement: {1:.3f}'.format(d17_last, d17_temp))
+                #         nameErrorChoice = raw_input('(s)kip acquisition, (i)nclude it, or make a (n)ew sample from it? ')
+                #         if nameErrorChoice.lower() == 's':
+                #             print('Skipping acquisition ')
+                #             continue
+                #         elif nameErrorChoice.lower() == 'n':
+                #             # print('Making a new sample with name: ' + rawSampleName)
+                #             # analyses.append(PAMS_func.MCI())
+                #             # analyses[-1].name = rawSampleName
+                #             # analyses[-1].num = acqNum
+                #             # analyses[-1].date = date_str
+                #             firstAcq = True
+                #         else:
+                #             print('Including acquisition ')
+                #
+                # if firstAcq:
+                #     analyses.append(PAMS_func.MCI())
+                #     analyses[-1].name = rawSampleName
+                #     analyses[-1].num = acqNum
+                #     analyses[-1].date = date_str
+                #     firstAcq = False
+                #     print('Found new sample, with name: ' + rawSampleName)
 
 
                 # if no errors caught above, actually add acquisition to analyses
@@ -190,6 +224,8 @@ while True:
                     analyses[-1].acqs_full[-1].name = rawSampleName
                     analyses[-1].acqs_full[-1].time_c = time_c
 
+                lastSampleName = rawSampleName
+
                 print('Acquisition '+str(acqNum)+ ' successfully imported.')
 
         else :
@@ -210,9 +246,9 @@ while True:
                 else:
                     analyses = PAMS_func.Get_types_auto(analyses)
 
-            exportNowChoice = raw_input('Export analyses now (y/n)? ').lower()
-            if exportNowChoice == 'y':
-                PAMS_func.ExportSequence(analyses)
+            # exportNowChoice = raw_input('Export analyses now (y/n)? ').lower()
+            # if exportNowChoice == 'y':
+            #     PAMS_func.ExportSequence(analyses)
 
     #
     if taskChoice == 'P':
@@ -230,6 +266,8 @@ while True:
             newAnalyses = PAMS_func.PAMS_importer(filePath)
             print('{0} new analyses imported from file'.format(len(newAnalyses)))
             analyses += newAnalyses
+            print('Cleaning up analyses...')
+            analyses=PAMS_func.PAMS_cleaner(analyses)
             print('Checking analyses types...')
             while not PAMS_func.Sample_type_checker(analyses):
                 print('Some analyses types need to be assigned ')
@@ -257,12 +295,9 @@ while True:
 
             PAMS_func.ExportSequence(analyses)
         #
-    # if taskChoice == 'P':
-    #     print('Processing data in all relevant reference frames')
-    #     print('Processing data in caltech ref frame')
-    #     CIDS_func.CI_CRF_data_corrector(analyses)
-    #     print('Processing data in absolute ref frame, with the Daeron method')
-    #     CIDS_func.Daeron_data_processer(analyses)
+    if taskChoice == 'C':
+        print('Processing data in heated gas ref frame')
+        PAMS_func.MCI_hg_data_corrector(analyses)
     if taskChoice == 'Q':
         print('Goodbye! ')
         break

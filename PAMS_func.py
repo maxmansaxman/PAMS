@@ -73,6 +73,51 @@ class MCI_CALCULATED_VALUE(object):
     def __delete__(self, instance):
         raise AttributeError('Cannot delete CI corretion scheme')
 
+class MCI_UNIVERSAL_VALUE(object):
+    '''subclass defining how heated gases are taken'''
+
+    def __init__(self, name):
+        self.name = name
+
+    def __get__(self,instance,cls):
+        if self.name in ['hg_slope', 'hg_intercept']:
+            return np.around(MCI_hg_values(instance, self.name),5)
+
+        else:
+            raise ValueError('Not a valid value')
+
+    def __set__(self, obj, value):
+        raise AttributeError('Cannot change individual hg value')
+
+    def __delete__(self, instance):
+        raise AttributeError('Cannot delete individual hg value')
+
+class MCI_CORRECTED_VALUE(object):
+    '''subclass defining how isotopic ratios are averaged'''
+
+    def __init__(self, name):
+        self.name = name
+
+    def __get__(self,instance,cls):
+        if self.name in ['D18_hg']:
+            return np.around(MCI_hg_corrector(instance, self.name),3)
+        # elif self.name in ['D47_ARF_acid']:
+        #     return np.around(CI_ARF_acid_corrector(instance, self.name),3)
+        # elif self.name in ['T_D47_ARF']:
+        #     return np.around(CI_temp_calibrations(instance, self.name),2)
+        # elif self.name in ['D47_ARF_stdCorr']:
+        #     return np.around(Carrara_carbonate_correction_ARF(instance, self.name), 3)
+
+        else:
+            raise ValueError('Sample D47_raw is out of range')
+
+
+    def __set__(self, obj, value):
+        raise AttributeError('Cannot change CI correction scheme')
+
+    def __delete__(self, instance):
+        raise AttributeError('Cannot delete CI corretion scheme')
+
 # class CI_UNIVERSAL_VALUE(object):
 #     '''subclass defining how heated gases are taken'''
 #
@@ -133,8 +178,8 @@ class MCI(object):
         self.adduct_D = [0, 0]
         self.adduct_18 = [0, 0]
 
-        self.mass18_frag = 3.700725
-        self.mass17_frag = 0.053245
+        self.stretch_18 = 3.700725
+        self.stretch_17 = 0.053245
         self.frag = 0.789
 
 
@@ -155,6 +200,10 @@ class MCI(object):
     d13C_sterr = MCI_CALCULATED_VALUE('d13C_sterr')
     dD_sterr = MCI_CALCULATED_VALUE('dD_sterr')
 
+    D18_hg = MCI_CORRECTED_VALUE('D18_hg')
+    hg_slope = MCI_UNIVERSAL_VALUE('hg_slope')
+    hg_intercept = MCI_UNIVERSAL_VALUE('hg_intercept')
+
     # D47_CRF = CI_CORRECTED_VALUE('D47_CRF')
     # hg_slope = CI_UNIVERSAL_VALUE('hg_slope')
     # hg_intercept = CI_UNIVERSAL_VALUE('hg_intercept')
@@ -174,7 +223,7 @@ class ACQUISITION_FULL(object):
         self.time=''
         self.adduct_17 = [ 0, 0]
         self.adduct_18 = [ 0, 0]
-        self.frag_18 = 3.700725
+        self.stretch_18 = 3.700725
         self.type = 'full'
         self.name = ''
         self.time_c = 0
@@ -196,9 +245,10 @@ class ACQUISITION_D(object):
         self.date=''
         self.time=''
         self.adduct_17 = [0, 0]
-        self.frag_17= 0.053245
+        self.stretch_17= 0.053245
         self.type = 'D'
         self.time_c = 0
+        self.name = ''
 
     d17_D=MCI_VALUE('d17_D')
     voltSam = MCI_VOLTAGE('voltSam')
@@ -317,6 +367,9 @@ def PAMS_cleaner(analyses):
     else:
         print 'analyses with too few clumped acqs are:'
         print '\n'.join(['Sample '+ str(k.num)+ ': '+ k.name +' has ' + str(len(k.acqs_full)) + ' acquisitions' for k in lowAcqs])
+        for i in lowAcqs:
+            if len(i.acqs_full) <=1:
+                analyses.remove(i)
 
     temp_D=3
     lowAcqs_D= [k for k in analyses if len(k.acqs_D)<temp_D]
@@ -326,6 +379,49 @@ def PAMS_cleaner(analyses):
     else:
         print 'analyses with too few D acqs are:'
         print '\n'.join(['Sample '+ str(k.num)+ ': '+ k.name +' has ' + str(len(k.acqs_D)) + ' acquisitions' for k in lowAcqs_D])
+        for i in lowAcqs_D:
+            if len(i.acqs_D) <=1:
+                analyses.remove(i)
+
+    checkAdductLinesChoice = raw_input('Set adduct lines now? (y/n) ').lower()
+    if checkAdductLinesChoice == 'y':
+        print('Checking adduct lines')
+        for i in analyses:
+            adductVals = [i.adduct_D, i.adduct_full, i.adduct_18]
+            adductTypes = ['D', 'full 17', 'clumped 18']
+            for j in range(3):
+                if adductVals[j] == [0,0]:
+                    print('Sample {0} from {1} needs a {2} line '.format(i.name, i.date, adductTypes[j]))
+                    a = raw_input('2nd-order coefficient: ')
+                    a = float(a)
+                    b = raw_input('1st-order coefficient: ')
+                    b = float(b)
+                    # temporarily store values
+                    adductVals[j] = [a, b]
+            # now, setting values
+            [i.adduct_D, i.adduct_full, i.adduct_18] = adductVals
+        # Regardless of status, set all acq-level adduct lines to sample adduct lines
+        for i in analyses:
+            for k in i.acqs_D:
+                k.adduct_17 = i.adduct_D
+            for l in i.acqs_full:
+                [l.adduct_17, l.adduct_18] = [i.adduct_full, i.adduct_18]
+
+    changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n)').lower()
+    if changeStretchingCorrections == 'y':
+        for i in analyses:
+            print('dD stretching correction is currently {0}'.format(i.stretch_17))
+            changeIt = raw_input('Input new one or press enter to keep: ').lower()
+            if len(changeIt) > 0:
+                i.stretch_17 = float(changeIt)
+
+            print('d18 stretching correction is currently {0}'.format(i.stretch_18))
+            changeIt2 = raw_input('Input new one or press enter to keep: ').lower()
+            if len(changeIt2) > 0:
+                i.stretch_18 = float(changeIt2)
+
+
+
 
 
     # converting the voltages and backgrounds to arrays so that they can be easily used to do calculations
@@ -349,19 +445,17 @@ def FlatList_exporter(analyses,fileName, displayProgress = False):
     export=open(fileName + '.csv','wb')
     wrt=csv.writer(export,dialect='excel')
     wrt.writerow(['User','date','Type','Sample ID','spec #\'s', 'full acqs', 'dD acqs', 'd13C (vpdb)','d13C_sterr','d2H (vsmow)',
-    'd2H_sterr','d18','d18_sterr','D18 (v. wg)','D18_sterr'])
+    'd2H_sterr','d18','d18_sterr','D18 (v. wg)','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_hgCorrected'])
     counter = 0
-    if displayProgress:
-        for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
-            item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr ])
-            counter += 1
-            if ((counter * 100)*100) % (len(analyses)*100) == 0:
-                print(str((counter*100)/len(analyses)) + '% done')
-    else:
-        for item in analyses:
-            wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
-            item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr])
+    progressBar = np.linspace(0, len(analyses), 20)
+    for item in analyses:
+        wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
+        item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr, item.hg_slope, item.hg_intercept, item.D18_hg ])
+        counter += 1
+        if displayProgress:
+            if float(counter) in np.floor(progressBar):
+                print(str(int(float(counter)/len(analyses)*100)) + '% done')
+
     export.close()
     return
 
@@ -372,6 +466,8 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
 
     export=open(fileName + '.csv','wb')
     wrt=csv.writer(export,dialect='excel')
+    counter = 0
+    progressBar = np.linspace(0, len(analyses), 20)
     for analysis in analyses:
         wrt.writerow(['__NewSample__'])
         for acq in analysis.acqs_D:
@@ -380,8 +476,8 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
             for i in range(len(acq.voltSam)):
                 wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
             wrt.writerow([])
-            wrt.writerow(['','acq num','date','name','type', 'adductLine (2nd-ordr)', 'adducLine (1st-ordr)','17fragCorrection','d17_D (wg)'])
-            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1], acq.frag_17, acq.d17_D])
+            wrt.writerow(['','acq num','date','name','type', 'adductLine (2nd-ordr)', 'adducLine (1st-ordr)','17stretchCorrection','d17_D (wg)'])
+            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1], acq.stretch_17, acq.d17_D])
 
         wrt.writerow([])
 
@@ -392,9 +488,9 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
                 wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
             wrt.writerow([])
             wrt.writerow(['','acq num','date','name','type', '17adductLine (2nd-ordr)',
-            '17adductLine (1st-ordr)', '18adductLine (2nd-ordr)', '18adductLine (1st-ordr)','18fragCorrection','d17_full (wg)', 'd18 (wg)'])
+            '17adductLine (1st-ordr)', '18adductLine (2nd-ordr)', '18adductLine (1st-ordr)','18stretchCorrection','d17_full (wg)', 'd18 (wg)'])
             wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1],
-            acq.adduct_18[0], acq.adduct_18[1],acq.frag_18, acq.d17_full, acq.d18])
+            acq.adduct_18[0], acq.adduct_18[1],acq.stretch_18, acq.d17_full, acq.d18])
 
         wrt.writerow([])
         wrt.writerow(['D analyses', 'd17_D','','','full analyses','d17_full','d18'])
@@ -414,12 +510,17 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
         wrt.writerow([])
         wrt.writerow(['','User','date','Type','Sample ID','acq #\'s','adduct_D (2nd-ordr)',
         'adduct_D (1st-ordr)','adduct_full (2nd-ordr)','adduct_full (1st-ordr)','adduct_18 (2nd-ordr)',
-        'adduct_18 (1st-ordr)','D_fragCorrection','18_fragCorrection','Fragmenation','d13C (vpdb)',
-        'd13C_sterr','dD (vsmow)','dD_sterr','D18_raw','D18_sterr'])
+        'adduct_18 (1st-ordr)','D_stretchCorrection','18_stretchCorrection','Fragmenation','d13C (vpdb)',
+        'd13C_sterr','dD (vsmow)','dD_sterr','D18_raw','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_hg'])
         wrt.writerow(['__SampleSummary__',analysis.user, analysis.date, analysis.type, analysis.name, analysis.num, analysis.adduct_D[0], analysis.adduct_D[1],
-        analysis.adduct_full[0], analysis.adduct_full[1], analysis.adduct_18[0], analysis.adduct_18[1], analysis.mass17_frag, analysis.mass18_frag, analysis.frag, analysis.d13C,
-        analysis.d13C_sterr, analysis.dD, analysis.dD_sterr, analysis.D18_raw, analysis.D18_sterr])
-        wrt.writerow(24*['---',])
+        analysis.adduct_full[0], analysis.adduct_full[1], analysis.adduct_18[0], analysis.adduct_18[1], analysis.stretch_17, analysis.stretch_18, analysis.frag, analysis.d13C,
+        analysis.d13C_sterr, analysis.dD, analysis.dD_sterr, analysis.D18_raw, analysis.D18_sterr, analysis.hg_slope, analysis.hg_intercept, analysis.D18_hg])
+        wrt.writerow(26*['---',])
+
+        counter +=1
+        if displayProgress:
+            if float(counter) in np.floor(progressBar):
+                print(str(int(float(counter)/len(analyses)*100)) + '% done')
 
     export.close()
     return
@@ -484,107 +585,95 @@ def PAMS_importer(filePath, displayProgress = False):
             [analyses[-1].user, analyses[-1].date, analyses[-1].type, analyses[-1].name] = line[summaryIndex + 1:summaryIndex+5]
             analyses[-1].num = int(line[summaryIndex + 5])
             [analyses[-1].adduct_D[0],analyses[-1].adduct_D[1],analyses[-1].adduct_full[0],analyses[-1].adduct_full[1], analyses[-1].adduct_18[0],analyses[-1].adduct_18[1]] = [float(i) for i in line[summaryIndex + 6:summaryIndex+12]]
-            [analyses[-1].mass17_frag,analyses[-1].mass18_frag, analyses[-1].frag] = [float(i) for i in line[summaryIndex+12:summaryIndex+15]]
+            [analyses[-1].stretch_17,analyses[-1].stretch_18, analyses[-1].frag] = [float(i) for i in line[summaryIndex+12:summaryIndex+15]]
             for i in analyses[-1].acqs_D:
                 i.adduct_17 = analyses[-1].adduct_D
-                i.frag_17 = analyses[-1].mass17_frag
+                i.stretch_17 = analyses[-1].stretch_17
             for j in analyses[-1].acqs_full:
                 j.adduct_17 = analyses[-1].adduct_full
                 j.adduct_18 = analyses[-1].adduct_18
-                j.frag_18 = analyses[-1].mass18_frag
+                j.stretch_18 = analyses[-1].stretch_18
 
     fileImport.close()
     return analyses
 
+def
+
+def MCI_hg_data_corrector(analyses, showFigures = True):
+    '''Extended function to do all aspects of CRF data correction'''
+
+    # First, make a list of all hgs
+
+    hgs = [i for i in analyses if (i.type == 'hg')]
+    d18_hgs = np.asarray([i.d18 for i in hgs])
+    D18_raw_hgs = np.asarray([i.D18_raw for i in hgs])
+    d18_sterr_hgs = np.asarray([i.d18_sterr for i in hgs])
+    D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
+    # Now, make hg D18 line, using a York regression
+    global hg_slope, hg_intercept
+    hg_slope, hg_intercept, r_18, sm, sb, xc, yc, ct = lsqcubic(d18_hgs, D18_raw_hgs,d18_sterr_hgs, D18_sterr_hgs)
+
+    D18_raw_hgs_model = d18_hgs*hg_slope+hg_intercept
+    if showFigures:
+        plt.ion()
+        plt.figure(0)
+        plt.errorbar(d18_hgs, D18_raw_hgs, xerr = d18_sterr_hgs, yerr = D18_sterr_hgs, fmt = 'bo')
+        plt.plot(d18_hgs, D18_raw_hgs_model, '-')
+        plt.ylabel(ur'$\Delta_{18} \/ (\u2030)$')
+        plt.xlabel(ur'$\delta^{18} \/ (\u2030)$')
 
 
+        # Calculation of the D18_hg values are done automatically given its definition, based on the global hg slope and int
+        # Plot the stds and heated gases
+        stds_D13 = [i for i in analyses if (i.type == 'stdD13')]
+        stds_1= [i for i in analyses if (i.type == 'std1')]
+        fig1, ax1 = plt.subplots()
+        ax1.errorbar([i.d18 for i in stds_D13],[i.D18_hg for i in stds_D13], xerr = [i.d18_sterr for i in stds_D13], yerr = [i.D18_sterr for i in stds_D13], fmt = 'o', label = '+D+13C')
+        ax1.errorbar([i.d18 for i in stds_1],[i.D18_hg for i in stds_1], xerr = [i.d18_sterr for i in stds_1], yerr = [i.D18_sterr for i in stds_1], fmt = 's', label = '+1')
+        ax1.errorbar([i.d18 for i in hgs],[i.D18_hg for i in hgs], xerr = [i.d18_sterr for i in hgs], yerr = [i.D18_sterr for i in hgs], fmt = '^', label = 'hg')
+        ax1.set_xlabel(ur'$\mathrm{}\delta^{18} \/ (\u2030)}$')
+        ax1.set_ylabel(ur'$\mathrm{\Delta_{18, hg_corr} \/ (\u2030)}$')
+        ax1.legend()
 
-def Get_gases(analyses):
-    '''Finds which analyses are heated and equilibrated gases, and assigns them TCO2 values'''
-    properNames = raw_input("Do all equilibrated gases have '25' in name? (y/n) ").lower()
-    for item in analyses:
-        if 'BOC' in item.name.upper():
-            if properNames == 'y':
-                if '25' in item.name:
-                    item.TCO2 = 25
-                    item.type = 'eg'
-                else :
-                    item.TCO2 = 1000
-                    item.type = 'hg'
-            else :
-                while True:
-                    choice = raw_input('Is acq num: ' + str(item.num) + ' with name: ' + item.name + ' a (h)eated gas, an (e)quilibrated gas?, or (s)kip? ')
-                    if choice.lower() == 'h':
-                        item.TCO2 = 1000
-                        item.type = 'hg'
-                        break
-                    elif choice.lower() == 'e':
-                        item.TCO2 = 25
-                        item.type = 'eg'
-                        break
-                    elif choice.lower() == 's':
-                        print('Skipping this analysis ')
-                        break
-                    else:
-                        print('Not a valid entry, please try again')
-    print('All heated and equilibrated gases have been found and labeled ')
-    return
 
-def Daeron_exporter(analyses, fileName):
-    '''Exports analyses in a csv that is formatted for Matthieu Daeron's xlcor47 script'''
-
-    export=open(fileName +'_daeron'+ '.csv','wb')
-    wrt=csv.writer(export,dialect='excel')
-    for item in analyses:
-        if np.isnan(item.TCO2):
-            wrt.writerow([item.name, item.d47, item.D47_raw, item.D47_sterr, ])
-        else :
-            wrt.writerow([item.name, item.d47, item.D47_raw, item.D47_sterr, item.TCO2])
-    export.close()
     return
 
 
-def Pressure_Baseline_Processer(fileFolder):
-    '''Pulls raw intensity data out of a folder of peak scans'''
+def MCI_hg_slope_finder(hgs):
+    # hgs = [i for i in analyses if (i.type == 'hg' and not i.D48_excess)]
+    d18_hgs = np.asarray([i.d18 for i in hgs])
+    D18_raw_hgs = np.asarray([i.D18_raw for i in hgs])
+    d18_sterr_hgs = np.asarray([i.d18_sterr for i in hgs])
+    D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
+    # Now, make hg D18 line, using a York regression
+    global hg_slope, hg_intercept
+    hg_slope, hg_intercept, r_18, sm, sb, xc, yc, ct = lsqcubic(d18_hgs, D18_raw_hgs,d18_sterr_hgs, D18_sterr_hgs)
 
-    fileList = [i for i in os.listdir(fileFolder) if '.csv' in i] #copies all csv pbl files in directory
-    print fileList
-    day = '4-22-14' # TODO: make this I/O eventually
-    fileList = [i for i in fileList if day in i] #only the csv files from certain days
-    A=[]
-    print fileList
-
-    #First read in the csv files to numpy arrays
-    for i in fileList:
-        A.append([])
-        fileName = fileFolder+i
-        fileReader = csv.reader(open(fileName, 'rU'), dialect='excel')
-        for line in fileReader:
-            A[-1].append(line)
-        A[-1].pop(0) #remove the first line with the headers
-
-        A[-1]=np.asfarray(A[-1])
-        # as a note, columns, in order, are: scanNumber, HV, mass44, mass45, mass46, mass47, mass48, mass49
-
-    # Now, finding minimums
-    int44=np.zeros((len(A),1))
-    minimums=np.zeros((len(A),6))
-    int49=np.zeros((len(A),1))
-
-    for i in range(len(A)):
-        max44=A[i][:,2].max()
-        halfHeight=np.nonzero(A[i][:,2]>(max44/2)) #array of indices of all values with mass44 intensity is gt half of max
-        peakCenter=int(np.median(halfHeight))
-        halfWidth=halfHeight[0][-1]-peakCenter # currently this line is not necessary, but may be later on
-        int44[i] = np.mean(A[i][peakCenter-5:peakCenter+5,2])
-        int49[i] = np.mean(A[i][peakCenter-5:peakCenter+5,7])
-        minimums[i,:]=A[i][peakCenter:,2:].min(axis=0) # minimum values of mass 44-49 on the right side of the peak
+    return hg_slope
 
 
 
+def MCI_hg_corrector(analysis, objName):
+    '''Function to apply the heated gas correction in the Caltech Ref Frame'''
+
+    try:
+        D18_hg_corrected = analysis.D18_raw - (analysis.d18*hg_slope + hg_intercept)
+        # D47_stretching = D47_hg_corrected *(-0.8453)/hg_intercept
+        # D47_CRF = D47_stretching + acid_digestion_correction
+    except NameError:
+        return(np.NaN)
+
+    return(D18_hg_corrected)
+
+def MCI_hg_values(instance, objName):
+    '''Placeholder for hg slope and int when used in CI classes'''
+    try:
+        values = {'hg_slope': hg_slope, 'hg_intercept': hg_intercept}
+        return(values[objName])
+    except(NameError, AttributeError):
+        return(np.NaN)
 
 
-    return int44, int49, minimums
 
 def MCI_calculation_full(acq, objName):
     '''Performs all the clumped isotope calculations for a single acq'''
@@ -594,11 +683,11 @@ def MCI_calculation_full(acq, objName):
     R_measured_ref=(acq.voltRef[:,(4,7)]/np.tile(acq.voltRef[:,2],(2,1)).T)
 
     # Subtracting adducts
-    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[0] + np.square(acq.voltSam[:,2])*acq.adduct_17[1])
-    R_measured_sample[:,1] -= (acq.voltSam[:,2]*acq.adduct_18[0] + np.square(acq.voltSam[:,2])*acq.adduct_18[1])
+    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
+    R_measured_sample[:,1] -= (acq.voltSam[:,2]*acq.adduct_18[1] + np.square(acq.voltSam[:,2])*acq.adduct_18[0])
 
-    R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[0] + np.square(acq.voltRef[:,2])*acq.adduct_17[1])
-    R_measured_ref[:,1] -= (acq.voltRef[:,2]*acq.adduct_18[0] + np.square(acq.voltRef[:,2])*acq.adduct_18[1])
+    R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
+    R_measured_ref[:,1] -= (acq.voltRef[:,2]*acq.adduct_18[1] + np.square(acq.voltRef[:,2])*acq.adduct_18[0])
 
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
@@ -606,7 +695,7 @@ def MCI_calculation_full(acq, objName):
     for l in range(len(R_measured_sample)):
         delta_measured[l,:]= (R_measured_sample[l,:]/((R_measured_ref[l,:]+R_measured_ref[l+1,:])/2)-1)*1000
         #correction for fragmentation
-        delta_measured[l,1]= delta_measured[l,1]*np.mean(R_measured_ref[l:l+1,1])/acq.frag_18
+        delta_measured[l,1]= delta_measured[l,1]*np.mean(R_measured_ref[l:l+1,1])/acq.stretch_18
 
     # couches ratios in analysis/std bracketing, put in delta notation
     # correcting d18 measurement using fragmentation value
@@ -631,15 +720,15 @@ def MCI_calculation_D(acq, objName):
     R_measured_ref = acq.voltRef[:,4]/acq.voltRef[:,2]
 
     # Subtracting adducts
-    R_measured_sample -= (acq.voltSam[:,2]*acq.adduct_17[0] + np.square(acq.voltSam[:,2])*acq.adduct_17[1])
-    R_measured_ref -= (acq.voltRef[:,2]*acq.adduct_17[0] + np.square(acq.voltRef[:,2])*acq.adduct_17[1])
+    R_measured_sample -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
+    R_measured_ref -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
 
     for l in range(len(R_measured_sample)):
         delta_temp= (R_measured_sample[l]/((R_measured_ref[l]+R_measured_ref[l+1])/2)-1)*1000
         #correction for fragmentation
-        delta_measured[l]= delta_temp*np.mean(R_measured_ref[l:l+1])/acq.frag_17
+        delta_measured[l]= delta_temp*np.mean(R_measured_ref[l:l+1])/acq.stretch_17
 
     # couches ratios in analysis/std bracketing, put in delta notation
     # correcting d18 measurement using fragmentation value
@@ -748,24 +837,6 @@ def MCI_averages(analysis, objName):
         else:
             return values.mean(axis=0)
 
-def CI_comparer(analyses1, analyses2):
-    '''compares two sets of CI data for equivalence in D47 calculations'''
-    equalSoFar = True
-    if not len(analyses1) == len(analyses2):
-        print('Data sets are not the same length!')
-
-    for i in range(len(analyses1)):
-        for j in range(len(analyses1[i].acqs)):
-            if not analyses1[i].acqs[j].D47_raw == analyses2[i].acqs[j].D47_raw:
-                print('Acq num {1} from analysis number {0} from comparison does not agree in D47'.format(i,j))
-                print('analyses1 D47 = {0:.3f}, analyses2 D47 = {1:.3f}'.format(analyses1[i].acqs[j].D47_raw, analyses2[i].acqs[j].D47_raw))
-                equalSoFar = False
-        if not analyses1[i].D47_stdev == analyses2[i].D47_stdev:
-            print('Sample number {0} from data sets do not agree in D47_stdev'.format(i))
-            print('1. D47_stdev = {0:.3f}, 2. D47_stdev = {0:.3f}'.format(analyses1[i].D47_stdev, analyses2[i].D48_stdev))
-
-    if equalSoFar:
-        print('Data sets are equivalent')
 
 def Sample_type_checker(analyses):
     AllAnalysesHaveType = True
@@ -842,181 +913,98 @@ def Get_types_manual(analyses):
 
     return(analyses)
 
-def CI_CRF_data_corrector(analyses, showFigures = True):
-    '''Extended function to do all aspects of CRF data correction'''
 
-    # First, make a list of all hgs
 
-    # Next, make a hg D48 line, using a York regression
-    # hg_slope_48, hg_intercept_48, r_48, sm, sb = lsqfitma([i.d48 for i in hgs], [i.D48_raw for i in hgs])
-    CI_48_excess_checker(analyses)
-    # Make a new hg collection with any 48 excesses removed
-    hgs = [i for i in analyses if (i.type == 'hg' and not i.D48_excess)]
-    d47_hgs = np.asarray([i.d47 for i in hgs])
-    D47_raw_hgs = np.asarray([i.D47_raw for i in hgs])
-    d47_stdev_hgs = np.asarray([i.d47_stdev for i in hgs])
-    D47_sterr_hgs = np.asarray([i.D47_sterr for i in hgs])
-    # Now, make hg D47 line, using a York regression
-    global hg_slope, hg_intercept
-    hg_slope, hg_intercept, r_47, sm, sb, xc, yc, ct = lsqcubic(d47_hgs, D47_raw_hgs,d47_stdev_hgs, D47_sterr_hgs)
-
-    D47_raw_hgs_model = d47_hgs*hg_slope+hg_intercept
-    if showFigures:
-        plt.figure(0)
-        plt.figure(0).hold(True)
-        plt.errorbar(d47_hgs, D47_raw_hgs, xerr = d47_stdev_hgs, yerr = D47_sterr_hgs, fmt = 'bo')
-        plt.plot(d47_hgs, D47_raw_hgs_model, '-')
-        plt.ylabel(ur'$\Delta_{47} \/ (\u2030)$')
-        plt.xlabel(ur'$\delta^{47} \/ (\u2030)$')
-        plt.show()
-
-        # Calculation of the D47_CRF values are done automatically given its definition, based on the global hg slope and int
-        # Plot the stds
-        stds_Carrara = [i for i in analyses if (i.type == 'std' and 'carrara' in i.name.lower() and not i.D48_excess)]
-        stds_TV03 = [i for i in analyses if (i.type == 'std' and 'tv03' in i.name.lower() and not i.D48_excess)]
-        plt.figure(0)
-        plt.figure(0).hold(True)
-        plt.errorbar([CIT_Carrara_CRF for i in range(len(stds_Carrara))],[j.D47_CRF-CIT_Carrara_CRF for j in stds_Carrara], yerr = [k.D47_sterr for k in stds_Carrara], fmt = 'o')
-        plt.errorbar([TV03_CRF for i in range(len(stds_TV03))],[j.D47_CRF-TV03_CRF for j in stds_TV03], yerr = [k.D47_sterr for k in stds_TV03], fmt = 'o')
-        plt.xlim(0.3, 0.7)
-        plt.xlabel(ur'$\mathrm{}\Delta_{47, CRF} \/ (\u2030)}$')
-        plt.ylabel(ur'$\mathrm{\Delta_{47, measured}-\Delta_{47, expected} \/ (\u2030)}$')
-        plt.show()
-
-    return
-
-def CI_hg_slope_finder(hgs):
-    # hgs = [i for i in analyses if (i.type == 'hg' and not i.D48_excess)]
-    d47_hgs = np.asarray([i.d47 for i in hgs])
-    D47_raw_hgs = np.asarray([i.D47_raw for i in hgs])
-    d47_stdev_hgs = np.asarray([i.d47_stdev for i in hgs])
-    D47_sterr_hgs = np.asarray([i.D47_sterr for i in hgs])
-    # Now, make hg D47 line, using a York regression
-    global hg_slope, hg_intercept
-    hg_slope, hg_intercept, r_47, sm, sb, xc, yc, ct = lsqcubic(d47_hgs, D47_raw_hgs,d47_stdev_hgs, D47_sterr_hgs)
-
-    return hg_slope
 
 #
-# def CI_hg_slope_finder(d47_hgs, D47_raw_hgs, d47_stdev_hgs, D47_sterr_hgs):
-#     # Now, make hg D47 line, using a York regression
-#     global hg_slope, hg_intercept
-#     hg_slope, hg_intercept, r_47, sm, sb, xc, yc, ct = lsqcubic(d47_hgs, D47_raw_hgs,d47_stdev_hgs, D47_sterr_hgs)
+# def CI_48_excess_checker(analyses, showFigures = False):
+#     '''Checks for 48 excess using hg slope and int, based on a certain pre-specified tolerance'''
+#     D48_excess_tolerance = 1
+#     hgs = [i for i in analyses if i.type == 'hg']
+#     hg_slope_48, hg_intercept_48, r_48, sm_48, sb_48, xc_48, yc_, ct_ = lsqcubic(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
+#     np.asarray([i.d48_stdev for i in hgs]), np.asarray([i.D48_stdev for i in hgs]))
+#     for i in analyses:
+#         D48_predicted = i.d48*hg_slope_48 + hg_intercept_48
+#         D48_excess_value = i.D48_raw - D48_predicted
+#         if np.abs(D48_excess_value) > 1:
+#             i.D48_excess = True
+#             print('D48 excess found for sample: ' + i.name + ', ' + str(i.num))
 #
-#     return hg_slope
-
-
-
-
-def CI_48_excess_checker(analyses, showFigures = False):
-    '''Checks for 48 excess using hg slope and int, based on a certain pre-specified tolerance'''
-    D48_excess_tolerance = 1
-    hgs = [i for i in analyses if i.type == 'hg']
-    hg_slope_48, hg_intercept_48, r_48, sm_48, sb_48, xc_48, yc_, ct_ = lsqcubic(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
-    np.asarray([i.d48_stdev for i in hgs]), np.asarray([i.D48_stdev for i in hgs]))
-    for i in analyses:
-        D48_predicted = i.d48*hg_slope_48 + hg_intercept_48
-        D48_excess_value = i.D48_raw - D48_predicted
-        if np.abs(D48_excess_value) > 1:
-            i.D48_excess = True
-            print('D48 excess found for sample: ' + i.name + ', ' + str(i.num))
-
-
-    if showFigures:
-        plt.figure(1)
-        plt.subplot(2,1,1)
-        d48s = np.asarray([i.d48 for i in hgs])
-        D48s_model = d48s * hg_slope_48 + hg_intercept_48
-        # First, plotting the D48 line, TODO: include regression
-        plt.figure(1).hold(True)
-        plt.errorbar(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
-        xerr = np.asarray([i.d48_stdev for i in hgs]), yerr = np.asarray([i.D48_stdev for i in hgs]),
-        fmt = 'bo')
-        plt.plot(d48s, D48s_model,'r-')
-        plt.xlabel(ur'$\delta^{48} \/ ( \u2030 $)')
-        plt.ylabel(ur'$\Delta_{48} \/ ( \u2030 $)')
-
-        # Plotting all samples in D47 vs d47 space,
-        plt.subplot(2,1,2)
-        plt.errorbar(np.asarray([i.d47 for i in analyses]), np.asarray([i.D47_raw for i in analyses]),
-        xerr = np.asarray([i.d47_stdev for i in analyses]), yerr = np.asarray([i.D47_sterr for i in analyses]),
-        fmt = 'o')
-        plt.xlabel(ur'$\delta^{47} \/ ( \u2030 $)')
-        plt.ylabel(ur'$\Delta_{47} \/ ( \u2030 $)')
-        # plt.savefig('D48_line.pdf', format = 'pdf')
-        plt.show()
-
-
-    return
-
-
-
-
-def CI_CRF_corrector(analysis, objName):
-    '''Function to apply the heated gas correction in the Caltech Ref Frame'''
-
-    acid_digestion_correction = 0.081
-    try:
-        D47_hg_corrected = analysis.D47_raw - (analysis.d47*hg_slope + hg_intercept)
-        D47_stretching = D47_hg_corrected *(-0.8453)/hg_intercept
-        D47_CRF = D47_stretching + acid_digestion_correction
-    except NameError:
-        return(np.NaN)
-
-    return(D47_CRF)
-
-def CI_hg_values(instance, objName):
-    '''Placeholder for hg slope and int when used in CI classes'''
-    try:
-        values = {'hg_slope': hg_slope, 'hg_intercept': hg_intercept}
-        return(values[objName])
-    except(NameError, AttributeError):
-        return(np.NaN)
-
-
-def Daeron_data_creator(analyses):
-    '''Creates a list of dictionaries in the format needed for M. Daeron's data
-    processing script '''
-    daeronData = []
-    for i in analyses:
-        daeronData.append({'label': i.name, 'd47': i.d47, 'rawD47': i.D47_raw,
-        'srawD47': i.D47_sterr} )
-        if i.type == 'hg':
-            daeronData[-1]['TCO2eq'] = 1000.0
-            daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(1000.0)
-        elif i.type == 'eg':
-            daeronData[-1]['TCO2eq'] = 25.0
-            daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(25.0)
-    return(daeronData)
-
-def Daeron_data_processer(analyses, showFigures = False):
-    '''Performs Daeron-style correction to put clumped isotope data into the ARF'''
-
-    daeronData = Daeron_data_creator(analyses)
-
-    global daeronBestFitParams, CorrelationMatrix
-    daeronBestFitParams, CorrelationMatrix = xlcor47_modified.process_data(daeronData)
-
-    for i in range(len(daeronData)):
-        analyses[i].D47_ARF = daeronData[i]['corD47']
-        analyses[i].D47_error_internal = daeronData[i]['scorD47_internal']
-        analyses[i].D47_error_model = daeronData[i]['scorD47_model']
-        analyses[i].D47_error_all = daeronData[i]['scorD47_all']
-
-    if showFigures:
-        xlcor47_modified.plot_data( daeronData, daeronBestFitParams, CorrelationMatrix ,'filename')
-
-    return
+#
+#     if showFigures:
+#         plt.figure(1)
+#         plt.subplot(2,1,1)
+#         d48s = np.asarray([i.d48 for i in hgs])
+#         D48s_model = d48s * hg_slope_48 + hg_intercept_48
+#         # First, plotting the D48 line, TODO: include regression
+#         plt.figure(1).hold(True)
+#         plt.errorbar(np.asarray([i.d48 for i in hgs]), np.asarray([i.D48_raw for i in hgs]),
+#         xerr = np.asarray([i.d48_stdev for i in hgs]), yerr = np.asarray([i.D48_stdev for i in hgs]),
+#         fmt = 'bo')
+#         plt.plot(d48s, D48s_model,'r-')
+#         plt.xlabel(ur'$\delta^{48} \/ ( \u2030 $)')
+#         plt.ylabel(ur'$\Delta_{48} \/ ( \u2030 $)')
+#
+#         # Plotting all samples in D47 vs d47 space,
+#         plt.subplot(2,1,2)
+#         plt.errorbar(np.asarray([i.d47 for i in analyses]), np.asarray([i.D47_raw for i in analyses]),
+#         xerr = np.asarray([i.d47_stdev for i in analyses]), yerr = np.asarray([i.D47_sterr for i in analyses]),
+#         fmt = 'o')
+#         plt.xlabel(ur'$\delta^{47} \/ ( \u2030 $)')
+#         plt.ylabel(ur'$\Delta_{47} \/ ( \u2030 $)')
+#         # plt.savefig('D48_line.pdf', format = 'pdf')
+#         plt.show()
+#
+#
+#     return
+#
+#
+#
+#
+#
+# def Daeron_data_creator(analyses):
+#     '''Creates a list of dictionaries in the format needed for M. Daeron's data
+#     processing script '''
+#     daeronData = []
+#     for i in analyses:
+#         daeronData.append({'label': i.name, 'd47': i.d47, 'rawD47': i.D47_raw,
+#         'srawD47': i.D47_sterr} )
+#         if i.type == 'hg':
+#             daeronData[-1]['TCO2eq'] = 1000.0
+#             daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(1000.0)
+#         elif i.type == 'eg':
+#             daeronData[-1]['TCO2eq'] = 25.0
+#             daeronData[-1]['trueD47'] = xlcor47_modified.CO2eqD47(25.0)
+#     return(daeronData)
+#
+# def Daeron_data_processer(analyses, showFigures = False):
+#     '''Performs Daeron-style correction to put clumped isotope data into the ARF'''
+#
+#     daeronData = Daeron_data_creator(analyses)
+#
+#     global daeronBestFitParams, CorrelationMatrix
+#     daeronBestFitParams, CorrelationMatrix = xlcor47_modified.process_data(daeronData)
+#
+#     for i in range(len(daeronData)):
+#         analyses[i].D47_ARF = daeronData[i]['corD47']
+#         analyses[i].D47_error_internal = daeronData[i]['scorD47_internal']
+#         analyses[i].D47_error_model = daeronData[i]['scorD47_model']
+#         analyses[i].D47_error_all = daeronData[i]['scorD47_all']
+#
+#     if showFigures:
+#         xlcor47_modified.plot_data( daeronData, daeronBestFitParams, CorrelationMatrix ,'filename')
+#
+#     return
 
 def ExportSequence(analyses):
     '''Most common export sequence'''
     print('Exporting to temporary PAMS and FlatList files ')
     print('Exporting full acqs to a PAMS sheet...')
     exportNamePAMS = 'autoPAMS_Export'
-    PAMS_exporter(analyses, exportNamePAMS)
+    PAMS_exporter(analyses, exportNamePAMS, displayProgress = True)
     print('Exporting analyses to a flatlist...')
     exportNameFlatlist = 'autoFlatListExport'
-    FlatList_exporter(analyses,exportNameFlatlist)
+    FlatList_exporter(analyses,exportNameFlatlist, displayProgress = True)
     print('Analyses successfully exported')
 
     return
@@ -1061,11 +1049,11 @@ def MCI_background_correction(instance, objName):
 
     return(voltages[objName])
 
-
-def Set_mass_47_pbl(pblSlope):
-    global mass47PblSlope
-    mass47PblSlope = pblSlope
-    # mass47PblIntercept = pblIntercept
+#
+# def Set_mass_47_pbl(pblSlope):
+#     global mass47PblSlope
+#     mass47PblSlope = pblSlope
+#     # mass47PblIntercept = pblIntercept
 
 
 
