@@ -67,24 +67,24 @@ class MCI_CALCULATED_VALUE(object):
 
     def __delete__(self, instance):
         raise AttributeError('Cannot delete CI corretion scheme')
-
-class MCI_UNIVERSAL_VALUE(object):
-    '''subclass defining how heated gases are taken'''
-
-    def __init__(self, name):
-        self.name = name
-
-    def __get__(self,instance,cls):
-        if self.name in ['hg_slope', 'hg_intercept']:
-            return np.around(MCI_hg_values(instance, self.name),5)
-        else:
-            raise ValueError('Not a valid value')
-
-    def __set__(self, obj, value):
-        raise AttributeError('Cannot change individual hg value')
-
-    def __delete__(self, instance):
-        raise AttributeError('Cannot delete individual hg value')
+#
+# class MCI_UNIVERSAL_VALUE(object):
+#     '''subclass defining how heated gases are taken'''
+#
+#     def __init__(self, name):
+#         self.name = name
+#
+#     def __get__(self,instance,cls):
+#         if self.name in ['hg_slope', 'hg_intercept']:
+#             return np.around(MCI_hg_values(instance, self.name),5)
+#         else:
+#             raise ValueError('Not a valid value')
+#
+#     def __set__(self, obj, value):
+#         raise AttributeError('Cannot change individual hg value')
+#
+#     def __delete__(self, instance):
+#         raise AttributeError('Cannot delete individual hg value')
 
 class MCI_CORRECTED_VALUE(object):
     '''subclass defining how isotopic ratios are averaged'''
@@ -150,6 +150,12 @@ class MCI(object):
         self.stretch_17 = 0.053245
         self.frag = 0.789
 
+        self.hg_slope = 0
+        self.hg_intercept = 0
+
+        self.background_full = [0,0,0]
+        self.background_D = [0,0,0]
+
     d17_full = MCI_AVERAGE('d17_full')
     d18 = MCI_AVERAGE('d18')
     d17_D = MCI_AVERAGE('d17_D')
@@ -167,8 +173,8 @@ class MCI(object):
     dD_sterr = MCI_CALCULATED_VALUE('dD_sterr')
 
     D18_hg = MCI_CORRECTED_VALUE('D18_hg')
-    hg_slope = MCI_UNIVERSAL_VALUE('hg_slope')
-    hg_intercept = MCI_UNIVERSAL_VALUE('hg_intercept')
+    # hg_slope = MCI_UNIVERSAL_VALUE('hg_slope')
+    # hg_intercept = MCI_UNIVERSAL_VALUE('hg_intercept')
 
 class ACQUISITION_FULL(object):
     "A class for all the attributes of a single clumped isotope acquision"
@@ -177,7 +183,7 @@ class ACQUISITION_FULL(object):
         self.acqNum=acqNum
         self.voltSam_raw=[]
         self.voltRef_raw=[]
-        self.background=[]
+        self.background=[0, 0, 0]
         self.date=''
         self.time=''
         self.adduct_17 = [ 0, 0]
@@ -198,7 +204,7 @@ class ACQUISITION_D(object):
         self.acqNum=acqNum
         self.voltSam_raw=[]
         self.voltRef_raw=[]
-        self.background=[]
+        self.background=[0, 0, 0]
         self.date=''
         self.time=''
         self.adduct_17 = [0, 0]
@@ -325,7 +331,31 @@ def PAMS_cleaner(analyses):
         for i in lowAcqs_D:
             if len(i.acqs_D) <=1:
                 analyses.remove(i)
+    # Setting background corrections
+    checkBackgroundsChoice = raw_input('Set background corrections now? (y/n) ').lower()
+    if checkBackgroundsChoice == 'y':
+        print('Checking background lines')
+        for i in analyses:
+            backVals = [i.background_D, i.background_full]
+            backTypes = ['dD', 'full']
+            for j in range(2):
+                if adductVals[j] == [0,0,0]:
+                    print('Sample {0} from {1} needs {2} background vals '.format(i.name, i.date, backTypes[j]))
+                    a = raw_input('mass 16: ')
+                    a = float(a)
+                    b = raw_input('mass 17: ')
+                    b = float(b)
+                    c = 0.0
+                    if j ==1:
+                        c = raw_input('mass 18: ')
+                        c = float(c)
 
+                    # temporarily store values
+                    backVals[j] = [a, b, c]
+            # now, setting values
+            [i.background_D, i.background_full] = backVals
+
+    # Setting adduct lines
     checkAdductLinesChoice = raw_input('Set adduct lines now? (y/n) ').lower()
     if checkAdductLinesChoice == 'y':
         print('Checking adduct lines')
@@ -343,14 +373,18 @@ def PAMS_cleaner(analyses):
                     adductVals[j] = [a, b]
             # now, setting values
             [i.adduct_D, i.adduct_full, i.adduct_18] = adductVals
-        # Regardless of status, set all acq-level adduct lines to sample adduct lines
-        for i in analyses:
-            for k in i.acqs_D:
-                k.adduct_17 = i.adduct_D
-            for l in i.acqs_full:
-                [l.adduct_17, l.adduct_18] = [i.adduct_full, i.adduct_18]
-
-    changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n)' ).lower()
+    # Regardless of status, set all acq-level adduct lines to sample adduct lines
+    # AND, set all acq-level backgrounds to sample level backgrounds
+    # NOTE: This assumes that backgrounds are uniform for all acqs of the same type in each sample.
+    for i in analyses:
+        for k in i.acqs_D:
+            k.adduct_17 = i.adduct_D
+            k.background = i.background_D
+        for l in i.acqs_full:
+            [l.adduct_17, l.adduct_18] = [i.adduct_full, i.adduct_18]
+            l.background = i.background_full
+    # Setting stretching corrections
+    changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n) ' ).lower()
     if changeStretchingCorrections == 'y':
         for i in analyses:
             print('dD stretching correction is currently {0}'.format(i.stretch_17))
@@ -400,24 +434,24 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
         wrt.writerow(['__NewSample__'])
         for acq in analysis.acqs_D:
             wrt.writerow(['__NewAcq-D__'])
-            wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam)[1]*['',]+acq.voltRef[0,:].tolist())
-            for i in range(len(acq.voltSam)):
-                wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
+            wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam_raw)[1]*['',]+acq.voltRef_raw[0,:].tolist())
+            for i in range(len(acq.voltSam_raw)):
+                wrt.writerow(['',''] + acq.voltSam_raw[i,:].tolist() + acq.voltRef_raw[i+1,:].tolist())
             wrt.writerow([])
-            wrt.writerow(['','acq num','date','name','type', 'adductLine (2nd-ordr)', 'adducLine (1st-ordr)','17stretchCorrection','d17_D (wg)'])
-            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1], acq.stretch_17, acq.d17_D])
+            wrt.writerow(['','acq num','date','name','type', 'mass16_bckgrnd', 'mass17_bckgrnd','adductLine (2nd-ordr)', 'adducLine (1st-ordr)','17stretchCorrection','d17_D (wg)'])
+            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.background[0], acq.background[1],acq.adduct_17[0], acq.adduct_17[1], acq.stretch_17, acq.d17_D])
 
         wrt.writerow([])
 
         for acq in analysis.acqs_full:
             wrt.writerow(['__NewAcq-Full__'])
-            wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam)[1]*['',]+acq.voltRef[0,:].tolist())
-            for i in range(len(acq.voltSam)):
-                wrt.writerow(['',''] + acq.voltSam[i,:].tolist() + acq.voltRef[i+1,:].tolist())
+            wrt.writerow(['__AcqVoltage__','',]+np.shape(acq.voltSam_raw)[1]*['',]+acq.voltRef_raw[0,:].tolist())
+            for i in range(len(acq.voltSam_raw)):
+                wrt.writerow(['',''] + acq.voltSam_raw[i,:].tolist() + acq.voltRef_raw[i+1,:].tolist())
             wrt.writerow([])
-            wrt.writerow(['','acq num','date','name','type', '17adductLine (2nd-ordr)',
+            wrt.writerow(['','acq num','date','name','type', 'mass16_bckgrnd', 'mass17_bckgrnd', 'mass18_bckgrnd', '17adductLine (2nd-ordr)',
             '17adductLine (1st-ordr)', '18adductLine (2nd-ordr)', '18adductLine (1st-ordr)','18stretchCorrection','d17_full (wg)', 'd18 (wg)'])
-            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.adduct_17[0], acq.adduct_17[1],
+            wrt.writerow(['__AcqInfo__',acq.acqNum, acq.date, analysis.name, acq.type, acq.background[0], acq.background[1], acq.background[2], acq.adduct_17[0], acq.adduct_17[1],
             acq.adduct_18[0], acq.adduct_18[1],acq.stretch_18, acq.d17_full, acq.d18])
 
         wrt.writerow([])
@@ -438,12 +472,13 @@ def PAMS_exporter(analyses, fileName, displayProgress = False):
         wrt.writerow([])
         wrt.writerow(['','User','date','Type','Sample ID','acq #\'s','adduct_D (2nd-ordr)',
         'adduct_D (1st-ordr)','adduct_full (2nd-ordr)','adduct_full (1st-ordr)','adduct_18 (2nd-ordr)',
-        'adduct_18 (1st-ordr)','D_stretchCorrection','18_stretchCorrection','Fragmenation','d13C (vpdb)',
-        'd13C_sterr','dD (vsmow)','dD_sterr','D18_raw','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_hg'])
+        'adduct_18 (1st-ordr)','D_stretchCorrection','18_stretchCorrection','Fragmenation','dD_bckgrnd_mass16', 'dD_bckgrnd_mass17', 'full_bckgrnd_mass16',
+        'full_bckgrnd_mass17', 'full_bckgrnd_mass18','d13C (vpdb)','d13C_sterr','dD (vsmow)','dD_sterr','D18_raw','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_hg'])
         wrt.writerow(['__SampleSummary__',analysis.user, analysis.date, analysis.type, analysis.name, analysis.num, analysis.adduct_D[0], analysis.adduct_D[1],
-        analysis.adduct_full[0], analysis.adduct_full[1], analysis.adduct_18[0], analysis.adduct_18[1], analysis.stretch_17, analysis.stretch_18, analysis.frag, analysis.d13C,
+        analysis.adduct_full[0], analysis.adduct_full[1], analysis.adduct_18[0], analysis.adduct_18[1], analysis.stretch_17, analysis.stretch_18, analysis.frag,
+        analysis.background_D[0], analysis.background_D[1], analysis.background_full[0], analysis.background_full[1], analysis.background_full[2], analysis.d13C,
         analysis.d13C_sterr, analysis.dD, analysis.dD_sterr, analysis.D18_raw, analysis.D18_sterr, analysis.hg_slope, analysis.hg_intercept, analysis.D18_hg])
-        wrt.writerow(26*['---',])
+        wrt.writerow(31*['---',])
 
         counter +=1
         if displayProgress:
@@ -501,12 +536,15 @@ def PAMS_importer(filePath, displayProgress = False):
                 analyses[-1].acqs_full[-1].date = line[acqIndex + 2]
                 analyses[-1].acqs_full[-1].voltRef_raw = np.asarray(analyses[-1].acqs_full[-1].voltRef_raw)
                 analyses[-1].acqs_full[-1].voltSam_raw = np.asarray(analyses[-1].acqs_full[-1].voltSam_raw)
+                # analyses[-1].acqs_full[-1].background = [float(i) for i in line[acqIndex+5: acqIndex + 8]]
 
             elif measType == 'D':
                 analyses[-1].acqs_D[-1].acqNum = float(line[acqIndex + 1])
                 analyses[-1].acqs_D[-1].date = line[acqIndex + 2]
                 analyses[-1].acqs_D[-1].voltRef_raw = np.asarray(analyses[-1].acqs_D[-1].voltRef_raw)
                 analyses[-1].acqs_D[-1].voltSam_raw = np.asarray(analyses[-1].acqs_D[-1].voltSam_raw)
+                # analyses[-1].acqs_D[-1].background = [float(i) for i in line[acqIndex+5: acqIndex + 7]].append(0.0)
+
             continue
         if '__SampleSummary__' in line:
             summaryIndex = line.index('__SampleSummary__')
@@ -514,6 +552,8 @@ def PAMS_importer(filePath, displayProgress = False):
             analyses[-1].num = int(line[summaryIndex + 5])
             [analyses[-1].adduct_D[0],analyses[-1].adduct_D[1],analyses[-1].adduct_full[0],analyses[-1].adduct_full[1], analyses[-1].adduct_18[0],analyses[-1].adduct_18[1]] = [float(i) for i in line[summaryIndex + 6:summaryIndex+12]]
             [analyses[-1].stretch_17,analyses[-1].stretch_18, analyses[-1].frag] = [float(i) for i in line[summaryIndex+12:summaryIndex+15]]
+            [analyses[-1].background_D[0], analyses[-1].background_D[1]] = [float(i) for i in line[summaryIndex+15:summaryIndex+17]]
+            analyses[-1].background_full = [float(i) for i in line[summaryIndex+17:summaryIndex+20]]
             for i in analyses[-1].acqs_D:
                 i.adduct_17 = analyses[-1].adduct_D
                 i.stretch_17 = analyses[-1].stretch_17
@@ -539,10 +579,10 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
     d18_sterr_hgs = np.asarray([i.d18_sterr for i in hgs])
     D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
     # Now, make hg D18 line, using a York regression
-    global hg_slope, hg_intercept
-    hg_slope, hg_intercept, r_18, sm, sb, xc, yc, ct = lsqcubic(d18_hgs, D18_raw_hgs,d18_sterr_hgs, D18_sterr_hgs)
+    # global hg_slope, hg_intercept
+    hg_slope_temp, hg_intercept_temp, r_18, sm, sb, xc, yc, ct = lsqcubic(d18_hgs, D18_raw_hgs,d18_sterr_hgs, D18_sterr_hgs)
 
-    D18_raw_hgs_model = d18_hgs*hg_slope+hg_intercept
+    D18_raw_hgs_model = d18_hgs*hg_slope_temp+hg_intercept_temp
     if showFigures:
         plt.ion()
         plt.figure(0)
@@ -564,7 +604,12 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
         ax1.set_ylabel(ur'$\mathrm{\Delta_{18, hg_corr} \/ (\u2030)}$')
         ax1.legend()
 
-
+    hgChoice = raw_input(' Apply this heated gas correction to all analyses? \n Slope: {0:.3f}, Intercept: {0:.3f} (y/n) '.format(hg_slope_temp, hg_intercept_temp)).lower()
+    if hgChoice == 'y':
+        print('Adding to all analyses... ')
+        for i in analyses:
+            i.hg_slope = hg_slope_temp
+            i.hg_intercept = hg_intercept_temp
     return
 
 
@@ -586,7 +631,7 @@ def MCI_hg_corrector(analysis, objName):
     '''Function to apply the heated gas correction in the Caltech Ref Frame'''
 
     try:
-        D18_hg_corrected = analysis.D18_raw - (analysis.d18*hg_slope + hg_intercept)
+        D18_hg_corrected = analysis.D18_raw - (analysis.d18*analysis.hg_slope + analysis.hg_intercept)
         # D47_stretching = D47_hg_corrected *(-0.8453)/hg_intercept
         # D47_CRF = D47_stretching + acid_digestion_correction
     except NameError:
@@ -594,13 +639,13 @@ def MCI_hg_corrector(analysis, objName):
 
     return(D18_hg_corrected)
 
-def MCI_hg_values(instance, objName):
-    '''Placeholder for hg slope and int when used in CI classes'''
-    try:
-        values = {'hg_slope': hg_slope, 'hg_intercept': hg_intercept}
-        return(values[objName])
-    except(NameError, AttributeError):
-        return(np.NaN)
+# def MCI_hg_values(instance, objName):
+#     '''Placeholder for hg slope and int when used in CI classes'''
+#     try:
+#         values = {'hg_slope': hg_slope, 'hg_intercept': hg_intercept}
+#         return(values[objName])
+#     except(NameError, AttributeError):
+#         return(np.NaN)
 
 
 
@@ -861,15 +906,14 @@ def MCI_background_correction(instance, objName):
     # voltSamTemp = np.copy(instance.voltSam_raw)
     # voltRefTemp = np.copy(instance.voltRef_raw)
 
-    slopeArray = np.array([0, 0 , 0, 0, 0, 0, 0, 0, 0, 0])
-    # interceptArray  = np.array([0, 0, 0, mass47PblIntercept, 0, 0])
+    backgroundArray = np.array([0, 0 , instance.background[0], 0, instance.background[1], 0, 0, instance.background[2], 0, 0])
 
-    # mass 47 correction
+    # absolute background correction
     try:
-        # print('Correcting voltages now')
-        # print('using this mass47 slope: '+ str(mass47PblSlope))
-        voltSamTemp = instance.voltSam_raw - np.transpose(np.tile(instance.voltSam_raw[:,0],(len(slopeArray),1)))*slopeArray
-        voltRefTemp = instance.voltRef_raw - np.transpose(np.tile(instance.voltRef_raw[:,0],(len(slopeArray),1)))*slopeArray
+
+
+        voltSamTemp = instance.voltSam_raw - np.tile(backgroundArray,(len(instance.voltSam_raw),1))
+        voltRefTemp = instance.voltRef_raw - np.tile(backgroundArray,(len(instance.voltRef_raw),1))
     except(IndexError):
         return 0
 
