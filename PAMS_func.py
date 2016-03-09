@@ -10,7 +10,11 @@ import struct
 import time
 import xlcor47_modified
 import string
+import datetime
+import pandas as pd
 from scipy.optimize import root
+from scipy.optimize import brentq
+from scipy.interpolate import interp1d
 
 class MCI_VALUE(object):
     '''subclass defining how important isotopic ratios are calculated'''
@@ -68,23 +72,28 @@ class MCI_CALCULATED_VALUE(object):
     def __delete__(self, instance):
         raise AttributeError('Cannot delete CI corretion scheme')
 #
-# class MCI_UNIVERSAL_VALUE(object):
-#     '''subclass defining how heated gases are taken'''
-#
-#     def __init__(self, name):
-#         self.name = name
-#
-#     def __get__(self,instance,cls):
-#         if self.name in ['hg_slope', 'hg_intercept']:
-#             return np.around(MCI_hg_values(instance, self.name),5)
-#         else:
-#             raise ValueError('Not a valid value')
-#
-#     def __set__(self, obj, value):
-#         raise AttributeError('Cannot change individual hg value')
-#
-#     def __delete__(self, instance):
-#         raise AttributeError('Cannot delete individual hg value')
+class MCI_APPLIED_VALUE(object):
+    '''subclass defining how applied vales are set in all acqs'''
+
+    def __init__(self, name, initval):
+        self.name = name
+        self.val = initval
+
+    def __get__(self,instance,cls):
+        if self.name == 'stretch_17':
+            return instance.stretch_17_holder
+        elif self.name == 'stretch_18':
+            return instance.stretch_18_holder
+        else:
+            raise ValueError('Not a valid value')
+
+    def __set__(self, instance, value):
+        if self.name in ['stretch_17', 'stretch_18']:
+            self.val = value
+            MCI_apply_to_acqs(instance, self.name, self.val)
+
+    def __delete__(self, instance):
+        raise AttributeError('Cannot delete individual stretching value')
 
 class MCI_CORRECTED_VALUE(object):
     '''subclass defining how isotopic ratios are averaged'''
@@ -146,8 +155,8 @@ class MCI(object):
         self.adduct_D = [0, 0]
         self.adduct_18 = [0, 0]
 
-        self.stretch_18 = 3.700725
-        self.stretch_17 = 0.053245
+        self.stretch_18_holder = 3.700725
+        self.stretch_17_holder =  0.053245
         self.frag = 0.789
 
         self.hg_slope = 0
@@ -155,6 +164,9 @@ class MCI(object):
 
         self.background_full = [0,0,0]
         self.background_D = [0,0,0]
+
+    stretch_17 = MCI_APPLIED_VALUE('stretch_17', 0.053245)
+    stretch_18 = MCI_APPLIED_VALUE('stretch_18', 3.700725)
 
     d17_full = MCI_AVERAGE('d17_full')
     d18 = MCI_AVERAGE('d18')
@@ -339,7 +351,7 @@ def PAMS_cleaner(analyses):
             backVals = [i.background_D, i.background_full]
             backTypes = ['dD', 'full']
             for j in range(2):
-                if adductVals[j] == [0,0,0]:
+                if backVals[j] == [0,0,0]:
                     print('Sample {0} from {1} needs {2} background vals '.format(i.name, i.date, backTypes[j]))
                     a = raw_input('mass 16: ')
                     a = float(a)
@@ -365,10 +377,10 @@ def PAMS_cleaner(analyses):
             for j in range(3):
                 if adductVals[j] == [0,0]:
                     print('Sample {0} from {1} needs a {2} line '.format(i.name, i.date, adductTypes[j]))
-                    a = raw_input('2nd-order coefficient: ')
-                    a = float(a)
                     b = raw_input('1st-order coefficient: ')
                     b = float(b)
+                    a = raw_input('2nd-order coefficient: ')
+                    a = float(a)
                     # temporarily store values
                     adductVals[j] = [a, b]
             # now, setting values
@@ -566,7 +578,152 @@ def PAMS_importer(filePath, displayProgress = False):
     return analyses
 
 def MCI_stretching_determination(analyses, showFigures = True):
-    ''' Fuction to determine the stretching corrections and '''
+    ''' Fuction to determine the stretching corrections with the +1 std and possibly apply it '''
+    # accepted values of dD and D18  of +1 std
+    std1_true = [226.92, 230.88]
+    # list of all std+1 standards
+    std1s = [i for i in analyses if i.type =='std1']
+    dates = [i.date for i in std1s]
+
+    dates_pd = pd.to_datetime(dates)
+    s17s = []
+    s18s = []
+    # Determining stretching values for each +1 standard
+    for j in std1s:
+        # extra arg is this specific to this std+1
+        extraArgs = (j,)
+        j.stretch_17 = brentq(MCI_std1_stretch_17_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False)
+        j.stretch_18 = brentq(MCI_std1_stretch_18_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False)
+        s17s.append(j.stretch_17)
+        s18s.append(j.stretch_18)
+
+
+    # Converting s17s into pandas data series
+    s17s = pd.Series(np.asarray(s17s), index = dates_pd)
+    s18s = pd.Series(np.asarray(s18s), index = dates_pd)
+    # reindexing to add in all na values from all analyses
+    dates_all = [i.date for i in analyses]
+    # pandas date index
+    dates_pd_all = pd.to_datetime(dates_all)
+    # ctime series
+    ctimes = []
+    for i in dates_all:
+        try:
+            ctimes.append(time.mktime(time.strptime(i, '%m/%d/%Y')))
+        except(ValueError):
+            ctimes.append(time.mktime(time.strptime(i, '%m/%d/%y')))
+    # ctimes = [time.mktime(time.strptime(i, '%m/%d/%Y')) for i in dates_all]
+    s17s = s17s.reindex(dates_pd_all)
+    s18s = s18s.reindex(dates_pd_all)
+    if showFigures:
+        plt.ion()
+        fig1, ax1 = plt.subplots()
+        s17s.plot(ax = ax1, style = 'b--o')
+        ax1.set_xlabel('date')
+        ax1.set_ylabel('stretch_17 of Std+1')
+        ax1.set_xlim(s17s.index.min(), s17s.index.max())
+
+        fig0, ax0 = plt.subplots()
+        s18s.plot(ax = ax0, style = 'b--o')
+        ax0.set_xlabel('date')
+        ax0.set_ylabel('stretch_18 of Std+1')
+        ax0.set_xlim(s18s.index.min(), s18s.index.max())
+
+
+    stretchChoice = raw_input('Apply (s)ingle stretching correction, (l)inear interpolation, or (f)orward fill? ').lower()
+    if stretchChoice == 's':
+        print('Mean stretch_17 is {0:.5f} '.format(s17s.mean()))
+        stretchChoice2 = raw_input('Use (m)ean, or type another: ')
+        if stretchChoice2 in ['m','', 'M']:
+            chosen17 = s17s.mean()
+        else:
+            chosen17 = float(stretchChoice2)
+        print('Mean stretch_18 is {0:.5f} '.format(s18s.mean()))
+        stretchChoice3 = raw_input('Use (m)ean, or type another: ')
+        if stretchChoice3 in ['m','', 'M']:
+            chosen18 = s18s.mean()
+        else:
+            chosen18 = float(stretchChoice3)
+        # Now, doing fill. Not changing std1s
+        for i in analyses:
+            if i.type != 'std1':
+                i.stretch_17 = chosen17
+                i.stretch_18 = chosen18
+
+    # elif stretchChoice == 'r':
+    #     stretchFn_17 = np.polyfit(ctimes, s17s, 1)
+    #     stretchFn_18 = np.polyfit(ctimes, s18s, 1)
+    #     for i in analyses:
+    #         if i.type != 'std1':
+    #             i.stretch_17 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_17[0] + stretchFn_17[1]
+    #             i.stretch_18 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_18[0] + stretchFn_18[1]
+
+    elif stretchChoice == 'l':
+        s17s.interpolate(method = 'time', inplace = True)
+        s18s.interpolate(method = 'time', inplace = True)
+        # now, back fill for first values
+        s17s.fillna(method = 'bfill', inplace = True)
+        s18s.fillna(method = 'bfill', inplace = True)
+        # stretchFn_17 = interp1d(ctimes, s17s, kind = 'linear')
+        # stretchFn_18 = interp1d(ctimes, s18s, kind = 'linear')
+        # Now, fill into data set
+        for i in range(len(analyses)):
+            analyses[i].stretch_17 = s17s.ix[i]
+            analyses[i].stretch_18 = s18s.ix[i]
+            # analyses[i].stretch_17 = stretchFn_17(time.mktime(time.strptime(i.date, '%m/%d/%y')))
+            # analyses[i].stretch_18 = stretchFn_18(time.mktime(time.strptime(i.date, '%m/%d/%y')))
+    # elif stretchChoice == 'm':
+    #     windowSize = raw_input('Size of moving window (2-10)? ').strip()
+    #     windowSize = int(windowSize)
+    #     s17s = pd.rolling_mean(s17s, windowSize, min_periods = 1)
+    #     s18s = pd.rolling_mean(s18s, windowSize, min_periods = 1)
+    #     # Now, fill into data set
+    #     for i in range(len(analyses)):
+    #         analyses[i].stretch_17 = s17s.ix[i]
+    #         analyses[i].stretch_18 = s18s.ix[i]
+
+    elif stretchChoice =='f':
+        s17s.fillna(method = 'ffill', inplace = True)
+        s18s.fillna(method = 'ffill', inplace = True)
+        # Now, fill into data set
+        for i in range(len(analyses)):
+            analyses[i].stretch_17 = s17s.ix[i]
+            analyses[i].stretch_18 = s18s.ix[i]
+
+    # if showFigures:
+    #     # Now, plot std results:
+    #     hgs = [i for i in analyses if (i.type == 'hg')]
+    #     d18_hgs = np.asarray([i.d18 for i in hgs])
+    #     D18_raw_hgs = np.asarray([i.D18_raw for i in hgs])
+    #     d18_sterr_hgs = np.asarray([i.d18_sterr for i in hgs])
+    #     D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
+    #
+    #     stds_D13 = [i for i in analyses if (i.type == 'stdD13')]
+    #     stds_1= [i for i in analyses if (i.type == 'std1')]
+    #     fig1, ax1 = plt.subplots()
+    #     ax1.errorbar([i.d18 for i in stds_D13],[i.D18_hg for i in stds_D13], xerr = [i.d18_sterr for i in stds_D13], yerr = [i.D18_sterr for i in stds_D13], fmt = 'o', label = '+D+13C')
+    #     ax1.errorbar([i.d18 for i in stds_1],[i.D18_hg for i in stds_1], xerr = [i.d18_sterr for i in stds_1], yerr = [i.D18_sterr for i in stds_1], fmt = 's', label = '+1')
+    #     ax1.errorbar([i.d18 for i in hgs],[i.D18_hg for i in hgs], xerr = [i.d18_sterr for i in hgs], yerr = [i.D18_sterr for i in hgs], fmt = '^', label = 'hg')
+    #     ax1.set_xlabel(ur'$\mathrm{}\delta^{18} \/ (\u2030)}$')
+    #     ax1.set_ylabel(ur'$\mathrm{\Delta_{18, hg_corr} \/ (\u2030)}$')
+    #     ax1.legend()
+
+
+    return
+
+
+def MCI_std1_stretch_17_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_17 = stretchGuess
+    return(this_std1.d17_D - 226.92)
+
+def MCI_std1_stretch_18_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_18 = stretchGuess
+    return(this_std1.d18 - 230.88)
+
+
+
 
 def MCI_hg_data_corrector(analyses, showFigures = True):
     ''' Function to determine heated gas line, plot it, and apply it to all samples '''
@@ -580,6 +737,9 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
     D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
     # Now, make hg D18 line, using a York regression
     # global hg_slope, hg_intercept
+    if len(hgs) <= 2:
+        print('Not enough heated gases for a meaningful hg line! ')
+        return
     hg_slope_temp, hg_intercept_temp, r_18, sm, sb, xc, yc, ct = lsqcubic(d18_hgs, D18_raw_hgs,d18_sterr_hgs, D18_sterr_hgs)
 
     D18_raw_hgs_model = d18_hgs*hg_slope_temp+hg_intercept_temp
@@ -597,14 +757,15 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
         stds_D13 = [i for i in analyses if (i.type == 'stdD13')]
         stds_1= [i for i in analyses if (i.type == 'std1')]
         fig1, ax1 = plt.subplots()
-        ax1.errorbar([i.d18 for i in stds_D13],[i.D18_hg for i in stds_D13], xerr = [i.d18_sterr for i in stds_D13], yerr = [i.D18_sterr for i in stds_D13], fmt = 'o', label = '+D+13C')
-        ax1.errorbar([i.d18 for i in stds_1],[i.D18_hg for i in stds_1], xerr = [i.d18_sterr for i in stds_1], yerr = [i.D18_sterr for i in stds_1], fmt = 's', label = '+1')
-        ax1.errorbar([i.d18 for i in hgs],[i.D18_hg for i in hgs], xerr = [i.d18_sterr for i in hgs], yerr = [i.D18_sterr for i in hgs], fmt = '^', label = 'hg')
+        ax1.errorbar([i.d18 for i in stds_D13],[i.D18_raw for i in stds_D13], xerr = [i.d18_sterr for i in stds_D13], yerr = [i.D18_sterr for i in stds_D13], fmt = 'o', label = '+D+13C')
+        ax1.errorbar([i.d18 for i in stds_1],[i.D18_raw for i in stds_1], xerr = [i.d18_sterr for i in stds_1], yerr = [i.D18_sterr for i in stds_1], fmt = 's', label = '+1')
+        ax1.errorbar([i.d18 for i in hgs],[i.D18_raw for i in hgs], xerr = [i.d18_sterr for i in hgs], yerr = [i.D18_sterr for i in hgs], fmt = '^', label = 'hg')
         ax1.set_xlabel(ur'$\mathrm{}\delta^{18} \/ (\u2030)}$')
         ax1.set_ylabel(ur'$\mathrm{\Delta_{18, hg_corr} \/ (\u2030)}$')
         ax1.legend()
 
-    hgChoice = raw_input(' Apply this heated gas correction to all analyses? \n Slope: {0:.3f}, Intercept: {0:.3f} (y/n) '.format(hg_slope_temp, hg_intercept_temp)).lower()
+    time.sleep(1)
+    hgChoice = raw_input(' Apply this heated gas correction to all analyses? \n Slope: {0:.3f}, Intercept: {1:.3f} (y/n) '.format(hg_slope_temp, hg_intercept_temp)).lower()
     if hgChoice == 'y':
         print('Adding to all analyses... ')
         for i in analyses:
@@ -625,6 +786,17 @@ def MCI_hg_slope_finder(hgs):
 
     return hg_slope
 
+def MCI_apply_to_acqs(analysis, objName, objValue):
+    ''' Function to apply a shared trait to all relevant acqs'''
+    if objName  == 'stretch_17':
+        analysis.stretch_17_holder = objValue
+        for i in analysis.acqs_D:
+            i.stretch_17 = objValue
+    elif objName == 'stretch_18':
+        analysis.stretch_18_holder = objValue
+        for i in analysis.acqs_full:
+            i.stretch_18 = objValue
+    return
 
 
 def MCI_hg_corrector(analysis, objName):
@@ -701,7 +873,7 @@ def MCI_calculation_D(acq, objName):
 
     for l in range(len(R_measured_sample)):
         delta_temp= (R_measured_sample[l]/((R_measured_ref[l]+R_measured_ref[l+1])/2)-1)*1000
-        #correction for fragmentation
+        #correction for stretching
         delta_measured[l]= delta_temp*np.mean(R_measured_ref[l:l+1])/acq.stretch_17
 
     # couches ratios in analysis/std bracketing, put in delta notation
@@ -842,7 +1014,7 @@ def Get_types_auto(analyses):
                 continue
             else:
                 name = analyses[i].name.lower()
-                if ('+1' in name) and ('std' in name):
+                if ('+1' in name) and ('std' in name) and ('+d' not in name):
                     analyses[i].name = str('"' + analyses[i].name + '"')
                     analyses[i].type = 'std1';
                     continue
@@ -994,7 +1166,7 @@ def lsqfitma(X, Y):
     return m, b, r, sm, sb
 
 
-def lsqcubic(X, Y, sX, sY, tl=1e-6):
+def lsqcubic(X, Y, sX, sY, tl=1e-7):
     """
     From:
     # teaching.py

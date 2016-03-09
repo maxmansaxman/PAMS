@@ -44,7 +44,7 @@ while True:
                     if acqNum in imported:
                         print('You already imported this file')
                     else:
-                        voltRef_raw,voltSam_raw,rawSampleName, date_str, time_str, deuteriumMeasurement = PAMS_func.Isodat_File_Parser(acqName)
+                        voltRef_raw,voltSam_raw,rawSampleName, date_str, time_str, deuteriumMeasurement, time_c = PAMS_func.Isodat_File_Parser(acqName)
                         if sampleName != rawSampleName :
                             print('Sample name: ' + analyses[-1].name + ' does not match name in file: ' + rawSampleName + ' ')
                             nameErrorChoice = raw_input('Are you sure you want to include this acquisition (y/n)? ')
@@ -58,12 +58,16 @@ while True:
                             analyses[-1].acqs_D[-1].voltRef_raw = voltRef_raw
                             analyses[-1].acqs_D[-1].date = date_str
                             analyses[-1].acqs_D[-1].time = time_str
+                            analyses[-1].acqs_D[-1].time_c = time_c
+
                         else:
                             analyses[-1].acqs_full.append(PAMS_func.ACQUISITION_FULL(acqNum))
                             analyses[-1].acqs_full[-1].voltSam_raw = voltSam_raw
                             analyses[-1].acqs_full[-1].voltRef_raw = voltRef_raw
                             analyses[-1].acqs_full[-1].date = date_str
                             analyses[-1].acqs_full[-1].time = time_str
+                            analyses[-1].acqs_full[-1].time_c = time_c
+
                         print('Acquisition '+str(acqNum)+ ' successfully imported.')
                 # Catching situation where sample name used in error, so no acqs imported
                 if len(analyses[-1].acqs) == 0:
@@ -296,6 +300,8 @@ while True:
             PAMS_func.ExportSequence(analyses)
         #
     if taskChoice == 'C':
+        print('Determining correct stretching values')
+        PAMS_func.MCI_stretching_determination(analyses, showFigures = True)
         print('Processing data in heated gas ref frame')
         PAMS_func.MCI_hg_data_corrector(analyses)
     if taskChoice == 'Q':
