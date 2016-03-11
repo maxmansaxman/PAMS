@@ -606,12 +606,19 @@ def MCI_stretching_determination(analyses, showFigures = True):
     # pandas date index
     dates_pd_all = pd.to_datetime(dates_all)
     # ctime series
+    ctimes_all = []
     ctimes = []
     for i in dates_all:
         try:
-            ctimes.append(time.mktime(time.strptime(i, '%m/%d/%Y')))
+            ctimes_all.append(time.mktime(time.strptime(i, '%m/%d/%Y')))
         except(ValueError):
-            ctimes.append(time.mktime(time.strptime(i, '%m/%d/%y')))
+            ctimes_all.append(time.mktime(time.strptime(i, '%m/%d/%y')))
+        if i in dates:
+            try:
+                ctimes.append(time.mktime(time.strptime(i, '%m/%d/%Y')))
+            except(ValueError):
+                ctimes.append(time.mktime(time.strptime(i, '%m/%d/%y')))
+
     # ctimes = [time.mktime(time.strptime(i, '%m/%d/%Y')) for i in dates_all]
     s17s = s17s.reindex(dates_pd_all)
     s18s = s18s.reindex(dates_pd_all)
@@ -628,9 +635,14 @@ def MCI_stretching_determination(analyses, showFigures = True):
         ax0.set_xlabel('date')
         ax0.set_ylabel('stretch_18 of Std+1')
         ax0.set_xlim(s18s.index.min(), s18s.index.max())
+        #
+        # fig2, ax2 = plt.subplots()
+        # ax2.plot(s17s, s18s, 'bo')
+        # ax2.set_xlabel('stretch_17 of Std+1')
+        # ax2.set_ylabel('stretch_18 of Std+1')
 
 
-    stretchChoice = raw_input('Apply (s)ingle stretching correction, (l)inear interpolation, or (f)orward fill? ').lower()
+    stretchChoice = raw_input('Apply (s)ingle stretching correction, linear (r)egression, linear (i)nterpolation, or (f)orward fill? ').lower()
     if stretchChoice == 's':
         print('Mean stretch_17 is {0:.5f} '.format(s17s.mean()))
         stretchChoice2 = raw_input('Use (m)ean, or type another: ')
@@ -650,15 +662,17 @@ def MCI_stretching_determination(analyses, showFigures = True):
                 i.stretch_17 = chosen17
                 i.stretch_18 = chosen18
 
-    # elif stretchChoice == 'r':
-    #     stretchFn_17 = np.polyfit(ctimes, s17s, 1)
-    #     stretchFn_18 = np.polyfit(ctimes, s18s, 1)
-    #     for i in analyses:
-    #         if i.type != 'std1':
-    #             i.stretch_17 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_17[0] + stretchFn_17[1]
-    #             i.stretch_18 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_18[0] + stretchFn_18[1]
+    elif stretchChoice == 'r':
+        stretchFn_17 = np.polyfit(np.array(ctimes), s17s.dropna().values, 1)
+        stretchFn_18 = np.polyfit(np.array(ctimes), s18s.dropna().values, 1)
+        for i in range(len(analyses)):
+            # if analyses[i].type != 'std1':
+                # i.stretch_17 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_17[0] + stretchFn_17[1]
+                # i.stretch_18 = time.mktime(time.strptime(i.date, '%m/%d/%y'))*stretchFn_18[0] + stretchFn_18[1]
+            analyses[i].stretch_17 = ctimes_all[i]*stretchFn_17[0] + stretchFn_17[1]
+            analyses[i].stretch_18 = ctimes_all[i]*stretchFn_18[0] + stretchFn_18[1]
 
-    elif stretchChoice == 'l':
+    elif stretchChoice == 'i':
         s17s.interpolate(method = 'time', inplace = True)
         s18s.interpolate(method = 'time', inplace = True)
         # now, back fill for first values
@@ -761,7 +775,7 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
         ax1.errorbar([i.d18 for i in stds_1],[i.D18_raw for i in stds_1], xerr = [i.d18_sterr for i in stds_1], yerr = [i.D18_sterr for i in stds_1], fmt = 's', label = '+1')
         ax1.errorbar([i.d18 for i in hgs],[i.D18_raw for i in hgs], xerr = [i.d18_sterr for i in hgs], yerr = [i.D18_sterr for i in hgs], fmt = '^', label = 'hg')
         ax1.set_xlabel(ur'$\mathrm{}\delta^{18} \/ (\u2030)}$')
-        ax1.set_ylabel(ur'$\mathrm{\Delta_{18, hg_corr} \/ (\u2030)}$')
+        ax1.set_ylabel(ur'$\mathrm{\Delta_{18, raw} \/ (\u2030)}$')
         ax1.legend()
 
     time.sleep(1)
@@ -830,17 +844,17 @@ def MCI_calculation_full(acq, objName):
 
     # Subtracting adducts
     R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
-    R_measured_sample[:,1] -= (acq.voltSam[:,2]*acq.adduct_18[1] + np.square(acq.voltSam[:,2])*acq.adduct_18[0])
+    R_measured_sample[:,1] -= (acq.voltSam[:,4]*acq.adduct_18[1] + np.square(acq.voltSam[:,4])*acq.adduct_18[0])
 
     R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
-    R_measured_ref[:,1] -= (acq.voltRef[:,2]*acq.adduct_18[1] + np.square(acq.voltRef[:,2])*acq.adduct_18[0])
+    R_measured_ref[:,1] -= (acq.voltRef[:,4]*acq.adduct_18[1] + np.square(acq.voltRef[:,4])*acq.adduct_18[0])
 
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
 
     for l in range(len(R_measured_sample)):
         delta_measured[l,:]= (R_measured_sample[l,:]/((R_measured_ref[l,:]+R_measured_ref[l+1,:])/2)-1)*1000
-        #correction for fragmentation
+        #correction for stretching
         delta_measured[l,1]= delta_measured[l,1]*np.mean(R_measured_ref[l:l+1,1])/acq.stretch_18
 
     # couches ratios in analysis/std bracketing, put in delta notation
