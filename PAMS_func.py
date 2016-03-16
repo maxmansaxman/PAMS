@@ -587,7 +587,11 @@ def MCI_stretching_determination(analyses, showFigures = True):
 
     dates_pd = pd.to_datetime(dates)
     s17s = []
+    s17s_upper= []
+    s17s_lower = []
     s18s = []
+    s18s_upper = []
+    s18s_lower = []
     # Determining stretching values for each +1 standard
     for j in std1s:
         # extra arg is this specific to this std+1
@@ -596,11 +600,24 @@ def MCI_stretching_determination(analyses, showFigures = True):
         j.stretch_18 = brentq(MCI_std1_stretch_18_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False)
         s17s.append(j.stretch_17)
         s18s.append(j.stretch_18)
+        s17s_upper.append(brentq(MCI_std1_stretch_17_upper_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False))
+        s17s_lower.append(brentq(MCI_std1_stretch_17_lower_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False))
+        s18s_upper.append(brentq(MCI_std1_stretch_18_upper_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False))
+        s18s_lower.append(brentq(MCI_std1_stretch_18_lower_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False))
+
+    # Calculating mean errors
+    s17sterr = []
+    s18sterr = []
+    for i in range(len(s17s_upper)):
+        s17sterr.append(np.mean([np.abs(s17s_upper[i]-s17s[i]), np.abs(s17s_lower[i] - s17s[i])]))
+        s18sterr.append(np.mean([np.abs(s18s[i]-s18s_upper[i]), np.abs(s18s[i] - s18s_lower[i])]))
 
 
     # Converting s17s into pandas data series
     s17s = pd.Series(np.asarray(s17s), index = dates_pd)
     s18s = pd.Series(np.asarray(s18s), index = dates_pd)
+    s17sterr = pd.Series(np.asarray(s17sterr), index = dates_pd)
+    s18sterr = pd.Series(np.asarray(s18sterr), index = dates_pd)
     # reindexing to add in all na values from all analyses
     dates_all = [i.date for i in analyses]
     # pandas date index
@@ -622,16 +639,22 @@ def MCI_stretching_determination(analyses, showFigures = True):
     # ctimes = [time.mktime(time.strptime(i, '%m/%d/%Y')) for i in dates_all]
     s17s = s17s.reindex(dates_pd_all)
     s18s = s18s.reindex(dates_pd_all)
+    s17sterr = s17sterr.reindex(dates_pd_all)
+    s18sterr = s18sterr.reindex(dates_pd_all)
+
     if showFigures:
+        plt.close('all')
         plt.ion()
         fig1, ax1 = plt.subplots()
-        s17s.plot(ax = ax1, style = 'b--o')
+        s17s.plot(ax = ax1, style = 'bo')
+        s17s.plot(ax = ax1, style = 'bo-', yerr = s17sterr)
         ax1.set_xlabel('date')
         ax1.set_ylabel('stretch_17 of Std+1')
         ax1.set_xlim(s17s.index.min(), s17s.index.max())
 
         fig0, ax0 = plt.subplots()
-        s18s.plot(ax = ax0, style = 'b--o')
+        s18s.plot(ax = ax0, style = 'rd')
+        s18s.plot(ax = ax0, style = 'rd-', yerr = s18sterr)
         ax0.set_xlabel('date')
         ax0.set_ylabel('stretch_18 of Std+1')
         ax0.set_xlim(s18s.index.min(), s18s.index.max())
@@ -731,10 +754,30 @@ def MCI_std1_stretch_17_fn(stretchGuess, *extraArgs):
     this_std1.stretch_17 = stretchGuess
     return(this_std1.d17_D - 226.92)
 
+def MCI_std1_stretch_17_upper_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_17 = stretchGuess
+    return((this_std1.d17_D + this_std1.d17_D_sterr) - 226.92)
+
+def MCI_std1_stretch_17_lower_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_17 = stretchGuess
+    return((this_std1.d17_D - this_std1.d17_D_sterr) - 226.92)
+
 def MCI_std1_stretch_18_fn(stretchGuess, *extraArgs):
     this_std1, = extraArgs
     this_std1.stretch_18 = stretchGuess
     return(this_std1.d18 - 230.88)
+
+def MCI_std1_stretch_18_upper_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_18 = stretchGuess
+    return((this_std1.d18 + this_std1.d18_sterr) - 230.88)
+
+def MCI_std1_stretch_18_lower_fn(stretchGuess, *extraArgs):
+    this_std1, = extraArgs
+    this_std1.stretch_18 = stretchGuess
+    return((this_std1.d18 - this_std1.d18_sterr) - 230.88)
 
 
 
