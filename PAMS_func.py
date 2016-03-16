@@ -399,6 +399,7 @@ def PAMS_cleaner(analyses):
     changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n) ' ).lower()
     if changeStretchingCorrections == 'y':
         for i in analyses:
+            print('Now considering sample {0} from {1}:  '.format(i.name, i.date))
             print('dD stretching correction is currently {0}'.format(i.stretch_17))
             changeIt = raw_input('Input new one or press enter to keep: ').lower()
             if len(changeIt) > 0:
