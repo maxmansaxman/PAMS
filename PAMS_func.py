@@ -104,6 +104,8 @@ class MCI_CORRECTED_VALUE(object):
     def __get__(self,instance,cls):
         if self.name in ['D18_hg']:
             return np.around(MCI_hg_corrector(instance, self.name),3)
+        elif self.name in ['D18_stoch']:
+            return np.around(instance.D18_hg + 2.981,3)
         else:
             raise ValueError('Sample D47_raw is out of range')
 
@@ -185,6 +187,7 @@ class MCI(object):
     dD_sterr = MCI_CALCULATED_VALUE('dD_sterr')
 
     D18_hg = MCI_CORRECTED_VALUE('D18_hg')
+    D18_stoch = MCI_CORRECTED_VALUE('D18_stoch') # Value in stochastic ref frame
     # hg_slope = MCI_UNIVERSAL_VALUE('hg_slope')
     # hg_intercept = MCI_UNIVERSAL_VALUE('hg_intercept')
 
@@ -399,10 +402,12 @@ def PAMS_cleaner(analyses):
     changeStretchingCorrections = raw_input('Change stretching corrections now? (y/n) ' ).lower()
     if changeStretchingCorrections == 'y':
         for i in analyses:
-            print('Now considering sample {0} from {1}:  '.format(i.name, i.date))
+            print('Now considering sample {0} from {1}:  (press q to quit)'.format(i.name, i.date))
             print('dD stretching correction is currently {0}'.format(i.stretch_17))
             changeIt = raw_input('Input new one or press enter to keep: ').lower()
-            if len(changeIt) > 0:
+            if changeIt == 'q':
+                break
+            elif len(changeIt) > 0:
                 i.stretch_17 = float(changeIt)
 
             print('d18 stretching correction is currently {0}'.format(i.stretch_18))
@@ -581,12 +586,19 @@ def PAMS_importer(filePath, displayProgress = False):
 def MCI_stretching_determination(analyses, showFigures = True):
     ''' Fuction to determine the stretching corrections with the +1 std and possibly apply it '''
     # accepted values of dD and D18  of +1 std
-    std1_true = [226.92, 230.88]
+    std1_true_old = [226.92, 230.88] # Before April 2016
+    std1_true_new = [320.531, 327.17] # After April 14th, 2016
+
     # list of all std+1 standards
     std1s = [i for i in analyses if i.type =='std1']
     dates = [i.date for i in std1s]
 
     dates_pd = pd.to_datetime(dates)
+    # Between April 1st and April 14th, 2016, two differed standards were run that were both called +1 std
+    # On April 14th, the switchover to the new one was finished
+    if '2016-04' in dates_pd:
+        print('WARNING: Value of +1 std changed in April 2016. \nThis dataset contains +1 stds from this month. \nAssuming these are newer values. \nBeware!')
+
     s17s = []
     s17s_upper= []
     s17s_lower = []
@@ -595,8 +607,13 @@ def MCI_stretching_determination(analyses, showFigures = True):
     s18s_lower = []
     # Determining stretching values for each +1 standard
     for j in std1s:
+        # Check for old or new std +1
+        if dates_pd[i] < np.datetime64('2016-04-01'):
+            std1_true = std1_true_old
+        else:
+            std1_true = std1_true_new
         # extra arg is this specific to this std+1
-        extraArgs = (j,)
+        extraArgs = (j,std1_true,)
         j.stretch_17 = brentq(MCI_std1_stretch_17_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False)
         j.stretch_18 = brentq(MCI_std1_stretch_18_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False)
         s17s.append(j.stretch_17)
@@ -664,7 +681,6 @@ def MCI_stretching_determination(analyses, showFigures = True):
         # ax2.plot(s17s, s18s, 'bo')
         # ax2.set_xlabel('stretch_17 of Std+1')
         # ax2.set_ylabel('stretch_18 of Std+1')
-
 
     stretchChoice = raw_input('Apply (s)ingle stretching correction, linear (r)egression, linear (i)nterpolation, or (f)orward fill? ').lower()
     if stretchChoice == 's':
@@ -751,34 +767,34 @@ def MCI_stretching_determination(analyses, showFigures = True):
 
 
 def MCI_std1_stretch_17_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_17 = stretchGuess
-    return(this_std1.d17_D - 226.92)
+    return(this_std1.d17_D - std1_true[0])
 
 def MCI_std1_stretch_17_upper_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_17 = stretchGuess
-    return((this_std1.d17_D + this_std1.d17_D_sterr) - 226.92)
+    return((this_std1.d17_D + this_std1.d17_D_sterr) - std1_true[0])
 
 def MCI_std1_stretch_17_lower_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_17 = stretchGuess
-    return((this_std1.d17_D - this_std1.d17_D_sterr) - 226.92)
+    return((this_std1.d17_D - this_std1.d17_D_sterr) - std1_true[0])
 
 def MCI_std1_stretch_18_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_18 = stretchGuess
-    return(this_std1.d18 - 230.88)
+    return(this_std1.d18 - std1_true[1])
 
 def MCI_std1_stretch_18_upper_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_18 = stretchGuess
-    return((this_std1.d18 + this_std1.d18_sterr) - 230.88)
+    return((this_std1.d18 + this_std1.d18_sterr) - std1_true[1])
 
 def MCI_std1_stretch_18_lower_fn(stretchGuess, *extraArgs):
-    this_std1, = extraArgs
+    this_std1, std1_true = extraArgs
     this_std1.stretch_18 = stretchGuess
-    return((this_std1.d18 - this_std1.d18_sterr) - 230.88)
+    return((this_std1.d18 - this_std1.d18_sterr) - std1_true[1])
 
 
 
@@ -793,6 +809,9 @@ def MCI_hg_data_corrector(analyses, showFigures = True):
     D18_raw_hgs = np.asarray([i.D18_raw for i in hgs])
     d18_sterr_hgs = np.asarray([i.d18_sterr for i in hgs])
     D18_sterr_hgs = np.asarray([i.D18_sterr for i in hgs])
+
+    # Correcting for offset between HGs and known wg value
+    D18_raw_hgs += 1.97
     # Now, make hg D18 line, using a York regression
     # global hg_slope, hg_intercept
     if len(hgs) <= 2:
@@ -887,7 +906,8 @@ def MCI_calculation_full(acq, objName):
     R_measured_ref=(acq.voltRef[:,(4,7)]/np.tile(acq.voltRef[:,2],(2,1)).T)
 
     # Subtracting adducts
-    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
+    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.
+    _17[0])
     R_measured_sample[:,1] -= (acq.voltSam[:,4]*acq.adduct_18[1] + np.square(acq.voltSam[:,4])*acq.adduct_18[0])
 
     R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
