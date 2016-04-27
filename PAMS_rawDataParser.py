@@ -111,10 +111,13 @@ while True:
             stopNumIndex = acqList.index(stopName)
 
             firstAcq = False
+            justAfterMethaneShutdown = False
             for i in range(startNumIndex,stopNumIndex+1):
                 acqName = acqFolder +'/'+ acqList[i]
-                # Catches files with a size less than 130 kb and skips them
-                if os.path.getsize(acqName) < 130000:
+                # Catches files with a size less than 100 kb and finds out if they're a methane shutdown block
+                if os.path.getsize(acqName) < 100000:
+                    # If it's a methaneshutdown method, assume that next acq is a new
+                    justAfterMethaneShutdown = PAMS_func.Is_It_MethaneShutdown(acqName)
                     print('Skipping acq num ' + str(acqList[i]) + ' because file too small')
                     continue
                 # Finds the acquision number from the file name, no matter how long the path nor what it contains
@@ -129,6 +132,9 @@ while True:
                 # if voltSam_raw[-1][0] < 15000:
                 #     print('Skipping acq ' + str(acqList[i]) + ' from sample ' + rawSampleName + ' because voltage too low on mass 44: ' + str(voltSam_raw[-1][0]))
                 #     continue
+                if justAfterMethaneShutdown:
+                    firstAcq = True
+                    justAfterMethaneShutdown = False
                 # if first acquision of folder, new sample
                 if len(analyses) == 0:
                     analyses.append(PAMS_func.MCI())

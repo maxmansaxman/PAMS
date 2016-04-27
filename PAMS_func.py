@@ -232,6 +232,21 @@ class ACQUISITION_D(object):
     voltSam = MCI_VOLTAGE('voltSam')
     voltRef = MCI_VOLTAGE('voltRef')
 
+def Is_It_MethaneShutdown(filename):
+    ''' Reads in a .did file and decides whether the method called was methaneshutdown'''
+    f = open(fileName, 'rb')
+    try:
+        buff = f.read()
+    finally: f.close()
+    startMethod = buff.find('CDualInletBlockData')
+    methodBlock = buff[startMethod-120:startMethod-20].decode('utf-16')
+
+    if 'methaneshutdown' in methodBlock:
+        return(True)
+    else:
+        return(False)
+
+
 def Isodat_File_Parser(fileName):
     '''Reads in a .did file (Isodat acquisition file), returns the raw voltages for
     ref gas, analysis gas, and the isodat-calculated d13C and d18O of the Acquisition'''
@@ -260,7 +275,7 @@ def Isodat_File_Parser(fileName):
         startSamVolt=start+2196+i*196 #observed location of sample gas voltage cycles
         voltSam_raw.append(struct.unpack('10d',buff[startSamVolt:(startSamVolt+10*8)]))
 
-    # 3.2 whether or not method is a CO2_multiply or a *_start
+    # 3.2 whether or not method is a methane method
     firstAcq = False
     startMethod = buff.find('CDualInletBlockData')
     methodBlock = buff[startMethod-120:startMethod-20].decode('utf-16')
@@ -425,12 +440,12 @@ def FlatList_exporter(analyses,fileName, displayProgress = False):
     export=open(fileName + '.csv','wb')
     wrt=csv.writer(export,dialect='excel')
     wrt.writerow(['User','date','Type','Sample ID','spec #\'s', 'full acqs', 'dD acqs', 'd13C (vpdb)','d13C_sterr','d2H (vsmow)',
-    'd2H_sterr','d18','d18_sterr','D18 (v. wg)','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_hgCorrected'])
+    'd2H_sterr','d18','d18_sterr','D18 (v. wg)','D18_sterr', 'hg_slope', 'hg_intercept', 'D18_stochastic'])
     counter = 0
     progressBar = np.linspace(0, len(analyses), 20)
     for item in analyses:
         wrt.writerow([item.user, item.date, item.type, item.name, item.num, len(item.acqs_full), len(item.acqs_D), item.d13C, item.d13C_sterr, item.dD,
-        item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr, item.hg_slope, item.hg_intercept, item.D18_hg ])
+        item.dD_sterr,item.d18,item.d18_sterr,item.D18_raw,item.D18_sterr, item.hg_slope, item.hg_intercept, item.D18_stoch ])
         counter += 1
         if displayProgress:
             if float(counter) in np.floor(progressBar):
