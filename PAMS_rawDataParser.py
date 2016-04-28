@@ -132,9 +132,7 @@ while True:
                 # if voltSam_raw[-1][0] < 15000:
                 #     print('Skipping acq ' + str(acqList[i]) + ' from sample ' + rawSampleName + ' because voltage too low on mass 44: ' + str(voltSam_raw[-1][0]))
                 #     continue
-                if justAfterMethaneShutdown:
-                    firstAcq = True
-                    justAfterMethaneShutdown = False
+
                 # if first acquision of folder, new sample
                 if len(analyses) == 0:
                     analyses.append(PAMS_func.MCI())
@@ -161,6 +159,11 @@ while True:
                     d17_last = analyses[-1].acqs_full[-1].d17_full
                     if abs(d17_temp-d17_last) > 1 and analyses[-1].name.lower() != rawSampleName.lower():
                         firstAcq = True
+
+                if justAfterMethaneShutdown:
+                    if len(analyses[-1].acqs_D)>0 and len(analyses[-1].acqs_full) > 0:
+                        firstAcq = True
+                    justAfterMethaneShutdown = False
 
                 if firstAcq:
                     analyses.append(PAMS_func.MCI())
