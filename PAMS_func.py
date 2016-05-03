@@ -621,18 +621,18 @@ def MCI_stretching_determination(analyses, showFigures = True):
     s18s_upper = []
     s18s_lower = []
     # Determining stretching values for each +1 standard
-    for j in std1s:
+    for j in range(len(std1s)):
         # Check for old or new std +1
-        if dates_pd[i] < np.datetime64('2016-04-01'):
+        if dates_pd[j] < np.datetime64('2016-04-01'):
             std1_true = std1_true_old
         else:
             std1_true = std1_true_new
         # extra arg is this specific to this std+1
-        extraArgs = (j,std1_true,)
-        j.stretch_17 = brentq(MCI_std1_stretch_17_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False)
-        j.stretch_18 = brentq(MCI_std1_stretch_18_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False)
-        s17s.append(j.stretch_17)
-        s18s.append(j.stretch_18)
+        extraArgs = (std1s[j],std1_true,)
+        std1s[j].stretch_17 = brentq(MCI_std1_stretch_17_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False)
+        std1s[j].stretch_18 = brentq(MCI_std1_stretch_18_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False)
+        s17s.append(std1s[j].stretch_17)
+        s18s.append(std1s[j].stretch_18)
         s17s_upper.append(brentq(MCI_std1_stretch_17_upper_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False))
         s17s_lower.append(brentq(MCI_std1_stretch_17_lower_fn, 0.0001, 0.1, args = extraArgs, xtol = 1e-12, disp = False))
         s18s_upper.append(brentq(MCI_std1_stretch_18_upper_fn, 0.0001, 10, args = extraArgs, xtol = 1e-12, disp = False))
