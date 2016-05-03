@@ -114,8 +114,8 @@ while True:
             justAfterMethaneShutdown = False
             for i in range(startNumIndex,stopNumIndex+1):
                 acqName = acqFolder +'/'+ acqList[i]
-                # Catches files with a size less than 100 kb and finds out if they're a methane shutdown block
-                if os.path.getsize(acqName) < 100000:
+                # Catches files with a size less than 130 kb and finds out if they're a methane shutdown block
+                if os.path.getsize(acqName) < 130000:
                     # If it's a methaneshutdown method, assume that next acq is a new
                     justAfterMethaneShutdown = PAMS_func.Is_It_MethaneShutdown(acqName)
                     print('Skipping acq num ' + str(acqList[i]) + ' because file too small')

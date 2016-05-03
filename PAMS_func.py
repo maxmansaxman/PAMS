@@ -232,7 +232,7 @@ class ACQUISITION_D(object):
     voltSam = MCI_VOLTAGE('voltSam')
     voltRef = MCI_VOLTAGE('voltRef')
 
-def Is_It_MethaneShutdown(filename):
+def Is_It_MethaneShutdown(fileName):
     ''' Reads in a .did file and decides whether the method called was methaneshutdown'''
     f = open(fileName, 'rb')
     try:
@@ -921,8 +921,7 @@ def MCI_calculation_full(acq, objName):
     R_measured_ref=(acq.voltRef[:,(4,7)]/np.tile(acq.voltRef[:,2],(2,1)).T)
 
     # Subtracting adducts
-    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.
-    _17[0])
+    R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
     R_measured_sample[:,1] -= (acq.voltSam[:,4]*acq.adduct_18[1] + np.square(acq.voltSam[:,4])*acq.adduct_18[0])
 
     R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
