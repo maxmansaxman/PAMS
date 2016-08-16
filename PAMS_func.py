@@ -4,6 +4,8 @@
 import csv
 import re
 import numpy as np
+import matplotlib as mpl
+mpl.use('PDF')
 import matplotlib.pyplot as plt
 import os
 import struct
@@ -15,6 +17,8 @@ import pandas as pd
 from scipy.optimize import root
 from scipy.optimize import brentq
 from scipy.interpolate import interp1d
+from scipy.optimize import least_squares
+from scipy.optimize import minimize
 
 class MCI_VALUE(object):
     '''subclass defining how important isotopic ratios are calculated'''
@@ -23,10 +27,10 @@ class MCI_VALUE(object):
 
     def __get__(self,instance,cls):
         if len(instance.voltRef)>3:
-            if self.name in ['d17_full', 'd18']:
-                return np.around(MCI_calculation_full(instance, self.name),3)
-            elif self.name in ['d17_D']:
-                return np.around(MCI_calculation_D(instance, self.name),3)
+            if self.name in ['d17_full', 'd18', 'P_imbalance_full', 'd17_full_all', 'd18_all']:
+                return np.around(MCI_calculation_full(instance, self.name),12)
+            elif self.name in ['d17_D', 'P_imbalance_D', 'd17_D_all']:
+                return np.around(MCI_calculation_D(instance, self.name),12)
 
     def __set__(self, obj, value):
         raise AttributeError('Cannot change MCI calculation scheme')
@@ -43,7 +47,7 @@ class MCI_AVERAGE(object):
     def __get__(self,instance,cls):
         if len(instance.acqs_full)>=1:
             if self.name in ['d17_full','d17_full_sterr','d17_D','d17_D_sterr','d18','d18_sterr']:
-                return np.around(MCI_averages(instance, self.name),3)
+                return np.around(MCI_averages(instance, self.name),12)
         else:
             raise ValueError('Sample has no acquisitions to average')
 
@@ -124,7 +128,7 @@ class MCI_VOLTAGE(object):
 
     def __get__(self,instance,cls):
         if self.name in ['voltSam', 'voltRef']:
-            return np.around(MCI_background_correction(instance, self.name),3)
+            return np.around(MCI_background_correction(instance, self.name),12)
 
         else:
             raise ValueError('Not a valid value')
@@ -157,6 +161,10 @@ class MCI(object):
         self.adduct_D = [0, 0]
         self.adduct_18 = [0, 0]
 
+        self.adduct_full_backup = [0, 0]
+        self.adduct_D_backup = [0, 0]
+        self.adduct_18_backup = [0, 0]
+
         self.stretch_18_holder = 3.700725
         self.stretch_17_holder =  0.053245
         self.frag = 0.789
@@ -166,6 +174,9 @@ class MCI(object):
 
         self.background_full = [0,0,0]
         self.background_D = [0,0,0]
+
+        self.P_imbalance_full = []
+        self.P_imbalance_D = []
 
     stretch_17 = MCI_APPLIED_VALUE('stretch_17', 0.053245)
     stretch_18 = MCI_APPLIED_VALUE('stretch_18', 3.700725)
@@ -208,8 +219,13 @@ class ACQUISITION_FULL(object):
         self.name = ''
         self.time_c = 0
 
+
     d17_full=MCI_VALUE('d17_full')
     d18=MCI_VALUE('d18')
+    d17_full_all = MCI_VALUE('d17_full_all')
+    d18_all = MCI_VALUE('d18_all')
+    P_imbalance_full = MCI_VALUE('P_imbalance_full')
+
     voltSam = MCI_VOLTAGE('voltSam')
     voltRef = MCI_VOLTAGE('voltRef')
 
@@ -229,6 +245,10 @@ class ACQUISITION_D(object):
         self.name = ''
 
     d17_D=MCI_VALUE('d17_D')
+    d17_D_all = MCI_VALUE('d17_D_all')
+    P_imbalance_D = MCI_VALUE('P_imbalance_D')
+
+
     voltSam = MCI_VOLTAGE('voltSam')
     voltRef = MCI_VOLTAGE('voltRef')
 
@@ -322,8 +342,8 @@ def Isodat_File_Parser(fileName):
 
     # 3.6 Deciding if d13C or dD measurement
     # converting to arrays
-    voltRef_raw = np.asarray(voltRef_raw)
-    voltSam_raw = np.asarray(voltSam_raw)
+    voltRef_raw = np.around(np.asarray(voltRef_raw),3)
+    voltSam_raw = np.around(np.asarray(voltSam_raw),3)
 
     if np.mean(voltRef_raw[:,7]) < 5e3:
         deuteriumMeasurement = True
@@ -567,15 +587,15 @@ def PAMS_importer(filePath, displayProgress = False):
             if measType == 'full':
                 analyses[-1].acqs_full[-1].acqNum = float(line[acqIndex + 1])
                 analyses[-1].acqs_full[-1].date = line[acqIndex + 2]
-                analyses[-1].acqs_full[-1].voltRef_raw = np.asarray(analyses[-1].acqs_full[-1].voltRef_raw)
-                analyses[-1].acqs_full[-1].voltSam_raw = np.asarray(analyses[-1].acqs_full[-1].voltSam_raw)
+                analyses[-1].acqs_full[-1].voltRef_raw = np.around(np.asarray(analyses[-1].acqs_full[-1].voltRef_raw),3)
+                analyses[-1].acqs_full[-1].voltSam_raw = np.around(np.asarray(analyses[-1].acqs_full[-1].voltSam_raw),3)
                 # analyses[-1].acqs_full[-1].background = [float(i) for i in line[acqIndex+5: acqIndex + 8]]
 
             elif measType == 'D':
                 analyses[-1].acqs_D[-1].acqNum = float(line[acqIndex + 1])
                 analyses[-1].acqs_D[-1].date = line[acqIndex + 2]
-                analyses[-1].acqs_D[-1].voltRef_raw = np.asarray(analyses[-1].acqs_D[-1].voltRef_raw)
-                analyses[-1].acqs_D[-1].voltSam_raw = np.asarray(analyses[-1].acqs_D[-1].voltSam_raw)
+                analyses[-1].acqs_D[-1].voltRef_raw = np.around(np.asarray(analyses[-1].acqs_D[-1].voltRef_raw),3)
+                analyses[-1].acqs_D[-1].voltSam_raw = np.around(np.asarray(analyses[-1].acqs_D[-1].voltSam_raw),3)
                 # analyses[-1].acqs_D[-1].background = [float(i) for i in line[acqIndex+5: acqIndex + 7]].append(0.0)
 
             continue
@@ -922,18 +942,21 @@ def MCI_calculation_full(acq, objName):
 
     # Subtracting adducts
     R_measured_sample[:,0] -= (acq.voltSam[:,2]*acq.adduct_17[1] + np.square(acq.voltSam[:,2])*acq.adduct_17[0])
-    R_measured_sample[:,1] -= (acq.voltSam[:,4]*acq.adduct_18[1] + np.square(acq.voltSam[:,4])*acq.adduct_18[0])
+    i17_corrected_sample = R_measured_sample[:,0]*acq.voltSam[:,2]
+    R_measured_sample[:,1] -= (i17_corrected_sample*acq.adduct_18[1] + np.square(i17_corrected_sample)*acq.adduct_18[0])
 
     R_measured_ref[:,0] -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
-    R_measured_ref[:,1] -= (acq.voltRef[:,4]*acq.adduct_18[1] + np.square(acq.voltRef[:,4])*acq.adduct_18[0])
+    i17_corrected_ref = R_measured_ref[:,0]*acq.voltRef[:,2]
+    R_measured_ref[:,1] -= (i17_corrected_ref*acq.adduct_18[1] + np.square(i17_corrected_ref)*acq.adduct_18[0])
 
+    P_imbalance = (acq.voltSam[:,2]/((acq.voltRef[0:-1,2] + acq.voltRef[1:,2])/2) -1)*100
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
 
     for l in range(len(R_measured_sample)):
-        delta_measured[l,:]= (R_measured_sample[l,:]/((R_measured_ref[l,:]+R_measured_ref[l+1,:])/2)-1)*1000
+        delta_measured[l,:]= (R_measured_sample[l,:]/R_measured_ref[l:l+2,:].mean(axis = 0)-1)*1000
         #correction for stretching
-        delta_measured[l,1]= delta_measured[l,1]*np.mean(R_measured_ref[l:l+1,1])/acq.stretch_18
+        delta_measured[l,1]= delta_measured[l,1]*np.mean(R_measured_ref[l:l+2,1])/acq.stretch_18
 
     # couches ratios in analysis/std bracketing, put in delta notation
     # correcting d18 measurement using fragmentation value
@@ -946,7 +969,7 @@ def MCI_calculation_full(acq, objName):
     d17=delta_measured_mean[0,0]
     d18=delta_measured_mean[0,1]
 
-    calculatedCIValues = {'d17_full': d17, 'd18': d18}
+    calculatedCIValues = {'d17_full': d17, 'd18': d18, 'd17_full_all': delta_measured[:,0], 'd18_all': delta_measured[:,1], 'P_imbalance_full': P_imbalance}
 
     return calculatedCIValues[objName]
 
@@ -962,11 +985,13 @@ def MCI_calculation_D(acq, objName):
     R_measured_ref -= (acq.voltRef[:,2]*acq.adduct_17[1] + np.square(acq.voltRef[:,2])*acq.adduct_17[0])
 
     delta_measured=np.zeros(np.shape(R_measured_sample)) # Preallocating for size of delta array
+    P_imbalance = (acq.voltSam[:,2]/((acq.voltRef[0:-1,2] + acq.voltRef[1:,2])/2) -1)*100
+
 
     for l in range(len(R_measured_sample)):
-        delta_temp= (R_measured_sample[l]/((R_measured_ref[l]+R_measured_ref[l+1])/2)-1)*1000
+        delta_temp= (R_measured_sample[l]/R_measured_ref[l:l+2].mean()-1)*1000
         #correction for stretching
-        delta_measured[l]= delta_temp*np.mean(R_measured_ref[l:l+1])/acq.stretch_17
+        delta_measured[l]= delta_temp*np.mean(R_measured_ref[l:l+2])/acq.stretch_17
 
     # couches ratios in analysis/std bracketing, put in delta notation
     # correcting d18 measurement using fragmentation value
@@ -978,9 +1003,154 @@ def MCI_calculation_D(acq, objName):
 
     d17=delta_measured_mean[0]
 
-    calculatedCIValues = {'d17_D': d17}
+    calculatedCIValues = {'d17_D': d17, 'd17_D_all': delta_measured, 'P_imbalance_D': P_imbalance}
 
     return calculatedCIValues[objName]
+
+def MCI_adduct_goal_seek(analyses, showFigures = False, verboseOutput = False):
+    ''' Gets slopes of adduct lines by minimization'''
+    for i in analyses:
+        # Step 1 is assemble P_imbalance arrays
+        i.P_imbalance_full = np.hstack([j.P_imbalance_full for j in i.acqs_full])
+        i.P_imbalance_D = np.hstack([j.P_imbalance_D for j in i.acqs_D])
+        # First, do dD
+        # 1. backup old Adduct values
+        i.adduct_D_backup = i.adduct_D
+        # 2. Assign zero to all new adduct values
+        i.adduct_D = [0,0]
+        for j in i.acqs_D:
+            j.adduct_17 = i.adduct_D
+        # assemble tuple
+        extraArgs = (i,)
+        # save initial guess for plots
+        d17_D_all_init = np.hstack([j.d17_D_all for j in i.acqs_D])
+        #initial guess is a reasonable fit
+        z_guess_D = 3.8e-5
+        # do fit
+        adduct_gs_result_D = minimize(MCI_adduct_goal_seek_17_D,z_guess_D,method = 'Nelder-Mead', args = extraArgs, bounds = (0, None), options = {'disp': verboseOutput})
+        i.adduct_D[1] = adduct_gs_result_D.x[0]
+        for j in i.acqs_D:
+            j.adduct_17[1] = adduct_gs_result_D.x[0]
+
+
+        # Now doing full
+        #1. assign zeros
+        i.adduct_18_backup = i.adduct_18
+        i.adduct_full_backup = i.adduct_full
+        i.adduct_full = [0,0]
+        i.adduct_18 = [0,0]
+        for j in i.acqs_full:
+            j.adduct_17 = i.adduct_full
+            j.adduct_18 = i.adduct_18
+
+        d17_full_all_init = np.hstack([j.d17_full_all for j in i.acqs_full])
+        d18_all_init = np.hstack([j.d18_all for j in i.acqs_full])
+
+        # First, have to fit 17 peak:
+        z_guess_full = 7.87e-6
+        adduct_gs_result_full = minimize(MCI_adduct_goal_seek_17_full,z_guess_full,method = 'Nelder-Mead', args = extraArgs, bounds = (0,None), options = {'disp': verboseOutput})
+        i.adduct_full[1] = adduct_gs_result_full.x[0]
+        for j in i.acqs_full:
+            j.adduct_17[1] = adduct_gs_result_full.x[0]
+
+        # now, fit 18 peak
+        z_guess_18 = 0.0005
+        adduct_gs_result_18 = minimize(MCI_adduct_goal_seek_18,z_guess_18,method = 'Nelder-Mead', args = extraArgs, bounds = (0, None), options = {'disp': verboseOutput})
+        # Apply new results
+        i.adduct_18[1] = adduct_gs_result_18.x[0]
+        for j in i.acqs_full:
+            j.adduct_18[1] = adduct_gs_result_18.x[0]
+
+        print('Goal seek complete for sample {0} from {1}'.format(i.name, i.date))
+        if showFigures:
+            fig, ax = plt.subplots(3)
+            fig.set_size_inches(9,18)
+            d17_D_all = np.hstack([j.d17_D_all for j in i.acqs_D])
+            slope_init, intercept_init = np.polyfit(i.P_imbalance_D, d17_D_all_init,1)
+            slope_fit, intercept_fit = np.polyfit(i.P_imbalance_D, d17_D_all, 1)
+            ax[0].plot(i.P_imbalance_D, d17_D_all_init, 'bs', label = 'k = 0')
+            ax[0].plot(i.P_imbalance_D, d17_D_all, 'go', label = 'k = {0:.3e}'.format(i.adduct_D[1]))
+            ax[0].plot(np.sort(i.P_imbalance_D), np.sort(i.P_imbalance_D)*slope_init+intercept_init, 'b--', label = None)
+            ax[0].plot(np.sort(i.P_imbalance_D), np.sort(i.P_imbalance_D)*slope_fit+intercept_fit, 'g-', label = None)
+            ax[0].set_title(ur'$\delta\mathrm{^{2}H}$ measurement')
+            ax[0].set_xlabel('P imbalance (%)')
+            ax[0].set_ylabel(ur'$\delta^{17}$, D (\u2030)')
+            ax[0].legend(loc = 'best')
+
+            d17_full_all = np.hstack([j.d17_full_all for j in i.acqs_full])
+            slope_init, intercept_init = np.polyfit(i.P_imbalance_full, d17_full_all_init,1)
+            slope_fit, intercept_fit = np.polyfit(i.P_imbalance_full, d17_full_all, 1)
+            ax[1].plot(i.P_imbalance_full, d17_full_all_init, 'bs', label = 'k = 0')
+            ax[1].plot(i.P_imbalance_full, d17_full_all, 'go', label = 'k = {0:.3e}'.format(i.adduct_full[1]))
+            ax[1].plot(np.sort(i.P_imbalance_full), np.sort(i.P_imbalance_full)*slope_init+intercept_init, 'b--', label = None)
+            ax[1].plot(np.sort(i.P_imbalance_full), np.sort(i.P_imbalance_full)*slope_fit+intercept_fit, 'g-', label = None)
+            ax[1].set_title(ur'$\delta\mathrm{^{2}H+^{13}C}$ measurement')
+            ax[1].set_xlabel('P imbalance (%)')
+            ax[1].set_ylabel(ur'$\delta^{17}$,full (\u2030)')
+            ax[1].legend(loc = 'best')
+
+            d18_all = np.hstack([j.d18_all for j in i.acqs_full])
+            slope_init, intercept_init = np.polyfit(i.P_imbalance_full, d18_all_init,1)
+            slope_fit, intercept_fit = np.polyfit(i.P_imbalance_full, d18_all, 1)
+            ax[2].plot(i.P_imbalance_full, d18_all_init, 'bs', label = 'k = 0')
+            ax[2].plot(i.P_imbalance_full, d18_all, 'go', label = 'k = {0:.3e}'.format(i.adduct_18[1]))
+            ax[2].plot(np.sort(i.P_imbalance_full), np.sort(i.P_imbalance_full)*slope_init+intercept_init, 'b--', label = None)
+            ax[2].plot(np.sort(i.P_imbalance_full), np.sort(i.P_imbalance_full)*slope_fit+intercept_fit, 'g-', label = None)
+            ax[2].set_title(ur'$\delta\mathrm{^{13}CH_{3}D+^{12}CH_{2}D_{2}}$ measurement')
+            ax[2].set_xlabel('P imbalance (%)')
+            ax[2].set_ylabel(ur'$\delta^{18}$ (\u2030)')
+            ax[2].legend(loc = 'best')
+
+            plt.tight_layout()
+            plt.show()
+
+            plt.savefig('{0}_{1}_gs_fits.pdf'.format(i.name.strip('"').replace('+', '_'), i.date.replace('/','-')))
+
+    return(analyses)
+
+def MCI_adduct_goal_seek_17_D(adductSlope, *extraArgs):
+    ''' Function for solving for adduct based on slopes'''
+    analysis, = extraArgs # unpacking tuple
+    # set new adduct slope for all
+    analysis.adduct_D[1] = adductSlope
+    for j in analysis.acqs_D:
+        j.adduct_17[1] = adductSlope
+    # get new d17 values
+    d17_D_all = np.hstack([j.d17_D_all for j in analysis.acqs_D])
+    # calculate slope
+    P_imbalance_slope, P_imbalance_intercept = np.polyfit(analysis.P_imbalance_D, d17_D_all, 1)
+    # return slope
+    return(np.abs(P_imbalance_slope))
+
+def MCI_adduct_goal_seek_17_full(adductSlope, *extraArgs):
+    ''' Function for solving for adduct based on slopes'''
+    analysis, = extraArgs # unpacking tuple
+    # set new adduct slope for all
+    analysis.adduct_full[1] = adductSlope
+    for j in analysis.acqs_full:
+        j.adduct_17[1] = adductSlope
+    # get new d17 values
+    d17_full_all = np.hstack([j.d17_full_all for j in analysis.acqs_full])
+    # calculate slope
+    P_imbalance_slope, P_imbalance_intercept = np.polyfit(analysis.P_imbalance_full, d17_full_all, 1)
+    # return slope
+    return(np.abs(P_imbalance_slope))
+
+def MCI_adduct_goal_seek_18(adductSlope, *extraArgs):
+    ''' Function for solving for adduct based on slopes'''
+    analysis, = extraArgs # unpacking tuple
+    # set new adduct slope for all
+    analysis.adduct_18[1] = adductSlope
+    for j in analysis.acqs_full:
+        j.adduct_18[1] = adductSlope
+    # get new d17 values
+    d18_all = np.hstack([j.d18_all for j in analysis.acqs_full])
+    # calculate slope
+    P_imbalance_slope, P_imbalance_intercept = np.polyfit(analysis.P_imbalance_full, d18_all, 1)
+    # return slope
+    return(np.abs(P_imbalance_slope))
+
+
 
 def MCI_bulk_solver(z,*extraArgs):
     '''Function for solving for bulk composition'''

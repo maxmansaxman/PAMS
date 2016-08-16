@@ -4,16 +4,19 @@
 import csv
 import re
 import numpy as np
+import matplotlib as mpl
+mpl.use('PDF')
 import matplotlib.pyplot as plt
 import PAMS_func
 import os
+import copy
 
 
 analyses = []
 print('Welcome to the methane clumped isotope importer/exporter')
 while True:
     print('Please select a task:')
-    taskChoice = raw_input(' (I)mport from raw isodat files \n Import from (P)AMS file \n (E)xport to PAMS and FLATLIST \n (C)alculate stretching corr and hg line \n (Q)uit \n ').upper()
+    taskChoice = raw_input(' (I)mport from raw isodat files \n Import from (P)AMS file \n (E)xport to PAMS and FLATLIST \n (C)alculate stretching corr and hg line \n (G)oal-seek adduct correction \n (Q)uit \n ').upper()
 
     if taskChoice == 'I':
         print('This script turns raw isodat files into a FLATLIST ')
@@ -313,6 +316,13 @@ while True:
         PAMS_func.MCI_stretching_determination(analyses, showFigures = True)
         print('Processing data in heated gas ref frame')
         PAMS_func.MCI_hg_data_corrector(analyses)
+
+    if taskChoice == 'G':
+        print('Copying old analyses to backup')
+        analyses_backup = copy.deepcopy(analyses)
+        print('Determining adduct slopes based on P-imbalance slopes')
+        analyses = PAMS_func.MCI_adduct_goal_seek(analyses, showFigures = True, verboseOutput = False)
+
     if taskChoice == 'Q':
         print('Goodbye! ')
         break
