@@ -1,6 +1,6 @@
 '''Compares methane clumped values determined using adduct lines and an in situ goal seek method'''
 import matplotlib as mpl
-mpl.use('pdf')
+# mpl.use('pdf')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

@@ -5,7 +5,7 @@ import csv
 import re
 import numpy as np
 import matplotlib as mpl
-mpl.use('PDF')
+# mpl.use('PDF')
 import matplotlib.pyplot as plt
 import PAMS_func
 import os
